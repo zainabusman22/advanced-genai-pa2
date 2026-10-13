@@ -25,6 +25,7 @@ scripts/
   build_pairs.py         blinded, A/B-randomised pairwise JSONL
   judge_pairwise_kaggle.py  Task 7 (batched, retrying, resumable judge)
   summarize_results.py   judge summaries -> Markdown table
+  analyze_results.py     lengths, refusal rates, win/loss examples for error analysis
   plot_metrics.py        training curves for the report
 notebooks/             Kaggle driver notebooks 01-06 (regenerate with make_notebooks.py)
 eval_sets/             hh_rlhf_eval_300_seed42.json (provided), alpaca_eval_300_seed42.json,

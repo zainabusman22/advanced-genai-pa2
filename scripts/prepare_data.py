@@ -30,6 +30,9 @@ from alignment.prompting import configure_tokenizer, format_prompt  # noqa: E402
 from alignment.utils import read_json, write_json, write_jsonl  # noqa: E402
 
 
+STATS = {}
+
+
 def take_filtered(dataset, convert, n, seed, desc):
     order = list(range(len(dataset)))
     random.Random(seed).shuffle(order)
@@ -42,6 +45,8 @@ def take_filtered(dataset, convert, n, seed, desc):
             if len(out) >= n:
                 break
     print(f"[{desc}] kept {len(out)} / scanned {seen} (source size {len(dataset)})")
+    STATS[desc] = {"kept": len(out), "scanned": seen, "rejected_by_filters": seen - len(out),
+                   "source_size": len(dataset), "seed": seed}
     if len(out) < n:
         print(f"[{desc}] WARNING: only {len(out)} rows passed filters (wanted {n})")
     return out
@@ -181,6 +186,10 @@ def main():
 
     if "alpaca" in args.only:
         build_alpaca_eval(ROOT / "eval_sets" / f"alpaca_eval_{args.alpaca_n}_seed{args.seed}.json", args.alpaca_n, args.seed)
+
+    STATS["settings"] = vars(args)
+    write_json(out / "data_stats.json", STATS)
+    print(f"stats -> {out / 'data_stats.json'}")
 
 
 if __name__ == "__main__":

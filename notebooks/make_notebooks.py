@@ -11,24 +11,32 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 
-CLONE = r'''# Private repo: add a GitHub token as a Kaggle secret named GITHUB_TOKEN
-# (Add-ons -> Secrets -> Add secret, then tick it for this notebook).
+CLONE = r'''# Get the code: preferably from the private Kaggle dataset "advanced-genai-pa2-code"
+# (attached as input); otherwise clone the private GitHub repo using a Kaggle secret
+# named GITHUB_TOKEN (Add-ons -> Secrets).
 REPO_URL = "https://github.com/zainabusman22/advanced-genai-pa2.git"
 REPO = "/kaggle/working/advanced-genai-pa2"
 
-import os, subprocess, sys
+import glob, os, shutil, subprocess, sys
 if not os.path.exists(REPO):
-    from kaggle_secrets import UserSecretsClient
-    token = UserSecretsClient().get_secret("GITHUB_TOKEN")
-    authed = REPO_URL.replace("https://", f"https://x-access-token:{token}@")
-    subprocess.run(["git", "clone", "--depth", "1", authed, REPO], check=True, capture_output=True)
-    subprocess.run(["git", "-C", REPO, "remote", "set-url", "origin", REPO_URL], check=True)  # don't keep the token on disk
-    del token, authed
+    code = [os.path.dirname(f) for f in glob.glob("/kaggle/input/**/submission_adapter.py", recursive=True)
+            if "advanced-genai-pa2-code" in f]
+    if code:
+        shutil.copytree(code[0], REPO)
+        print("code copied from", code[0])
+    else:
+        from kaggle_secrets import UserSecretsClient
+        token = UserSecretsClient().get_secret("GITHUB_TOKEN")
+        authed = REPO_URL.replace("https://", f"https://x-access-token:{token}@")
+        subprocess.run(["git", "clone", "--depth", "1", authed, REPO], check=True, capture_output=True)
+        subprocess.run(["git", "-C", REPO, "remote", "set-url", "origin", REPO_URL], check=True)
+        del token, authed
 os.chdir(REPO)
+print(open("CODE_VERSION.txt").read() if os.path.exists("CODE_VERSION.txt") else
+      subprocess.run(["git", "log", "--oneline", "-1"], capture_output=True, text=True).stdout)
 '''
 
-SETUP = "# ---- Task 1: repository + environment setup (Kaggle, GPU T4 x2) ----\n" + CLONE + r'''!git -C {REPO} log --oneline -1
-!python -m pip uninstall -y -q torchao || true
+SETUP = "# ---- Task 1: repository + environment setup (Kaggle, GPU T4 x2) ----\n" + CLONE + r'''!python -m pip uninstall -y -q torchao || true
 !python -m pip install -q "transformers>=4.43.0,<5" "datasets>=2.18,<5" huggingface_hub accelerate tqdm pyyaml sentencepiece safetensors pytest
 !python -m pip install -q -e . --no-deps
 !nvidia-smi
@@ -50,8 +58,9 @@ def find_dir(pattern):
     return os.path.dirname(hits[0])
 '''
 
-ZIP = r'''# Archive outputs so they survive the session (then: Save Version -> attach as dataset).
-!cd {REPO} && zip -qr /kaggle/working/{name}.zip {paths}
+ZIP = r'''# Small archive of metrics/configs/generations (model weights are already kept as notebook output;
+# zipping them too would double disk use).
+!cd {REPO} && zip -qr /kaggle/working/{name}.zip {paths} -x "*.safetensors" "*.bin" "*/trainer/*"
 !ls -lh /kaggle/working/*.zip
 '''
 
@@ -161,17 +170,31 @@ BASE_GENS = find_dir("generations/alpaca/base.json")  # baseline generations fro
         code('''import subprocess
 G = "python scripts/generate.py"
 gpu0 = (f"{G} --device cuda:0 --model_path {SFT_BEST} --eval_set eval_sets/alpaca_eval_300_seed42.json --generator_name qwen2.5-0.5b-sft --dataset_name alpaca_eval --output_path outputs/generations/alpaca/sft.json && "
-        f"{G} --device cuda:0 --model_path {UF_BEST} --eval_set eval_sets/alpaca_eval_300_seed42.json --generator_name qwen2.5-0.5b-dpo-uf --dataset_name alpaca_eval --output_path outputs/generations/alpaca/dpo_uf.json")
+        f"{G} --device cuda:0 --model_path {UF_BEST} --eval_set eval_sets/alpaca_eval_300_seed42.json --generator_name qwen2.5-0.5b-dpo-uf --dataset_name alpaca_eval --output_path outputs/generations/alpaca/dpo_uf.json && "
+        # alignment-tax cross-check: the safety-tuned model on general instructions
+        f"{G} --device cuda:0 --model_path {HH_BEST} --eval_set eval_sets/alpaca_eval_300_seed42.json --generator_name qwen2.5-0.5b-dpo-hh --dataset_name alpaca_eval --output_path outputs/generations/alpaca/dpo_hh.json")
 gpu1 = (f"{G} --device cuda:1 --model_path {SFT_BEST} --eval_set eval_sets/hh_rlhf_eval_300_seed42.json --generator_name qwen2.5-0.5b-sft --output_path outputs/generations/hh/sft.json && "
-        f"{G} --device cuda:1 --model_path {HH_BEST} --eval_set eval_sets/hh_rlhf_eval_300_seed42.json --generator_name qwen2.5-0.5b-dpo-hh --output_path outputs/generations/hh/dpo_hh.json")
+        f"{G} --device cuda:1 --model_path {HH_BEST} --eval_set eval_sets/hh_rlhf_eval_300_seed42.json --generator_name qwen2.5-0.5b-dpo-hh --output_path outputs/generations/hh/dpo_hh.json && "
+        # cross-check: the helpfulness-tuned model on the safety set
+        f"{G} --device cuda:1 --model_path {UF_BEST} --eval_set eval_sets/hh_rlhf_eval_300_seed42.json --generator_name qwen2.5-0.5b-dpo-uf --output_path outputs/generations/hh/dpo_uf.json")
 procs = [subprocess.Popen(c, shell=True, stdout=open(f"/kaggle/working/gen{i}.log", "w"), stderr=subprocess.STDOUT) for i, c in enumerate([gpu0, gpu1])]
 print([p.wait() for p in procs])
 !tail -2 /kaggle/working/gen0.log /kaggle/working/gen1.log'''),
         md("Build blinded pairwise files (randomised A/B, hidden identity metadata)"),
         code('''!python scripts/build_pairs.py --model_path outputs/generations/alpaca/dpo_uf.json --baseline_path outputs/generations/alpaca/sft.json --eval_kind general --output_path outputs/eval/uf_dpo_vs_sft_pairs.jsonl
 !python scripts/build_pairs.py --model_path outputs/generations/hh/dpo_hh.json --baseline_path outputs/generations/hh/sft.json --eval_kind safety --output_path outputs/eval/hh_dpo_vs_sft_pairs.jsonl
-!python scripts/build_pairs.py --model_path outputs/generations/alpaca/sft.json --baseline_path outputs/generations/alpaca/base.json --eval_kind general --output_path outputs/eval/sft_vs_base_alpaca_pairs.jsonl'''),
-        code(ZIP.replace("{name}", "generation_outputs").replace("{paths}", "outputs/generations outputs/eval")),
+!python scripts/build_pairs.py --model_path outputs/generations/alpaca/sft.json --baseline_path outputs/generations/alpaca/base.json --eval_kind general --output_path outputs/eval/sft_vs_base_alpaca_pairs.jsonl
+# optional cross-checks (alignment tax / transfer)
+!python scripts/build_pairs.py --model_path outputs/generations/alpaca/dpo_hh.json --baseline_path outputs/generations/alpaca/sft.json --eval_kind general --output_path outputs/eval/xhh_dpo_vs_sft_alpaca_pairs.jsonl
+!python scripts/build_pairs.py --model_path outputs/generations/hh/dpo_uf.json --baseline_path outputs/generations/hh/sft.json --eval_kind safety --output_path outputs/eval/xuf_dpo_vs_sft_hh_pairs.jsonl'''),
+        md("Training curves for the report (SFT, both DPO runs)"),
+        code('''SFT_M = find_dir("sft/metrics.jsonl"); HH_M = find_dir("dpo_hh/metrics.jsonl"); UF_M = find_dir("dpo_uf/metrics.jsonl")
+DS = find_dir("data/processed/data_stats.json")
+!python scripts/plot_metrics.py --sft {SFT_M}/metrics.jsonl --dpo HH-RLHF={HH_M}/metrics.jsonl UltraFeedback={UF_M}/metrics.jsonl --out_dir report/figures
+!mkdir -p outputs/run_records && for r in sft dpo_hh dpo_uf; do mkdir -p outputs/run_records/$r; done
+!cp {SFT_M}/*.json {SFT_M}/metrics.jsonl outputs/run_records/sft/ ; cp {HH_M}/*.json {HH_M}/metrics.jsonl outputs/run_records/dpo_hh/ ; cp {UF_M}/*.json {UF_M}/metrics.jsonl outputs/run_records/dpo_uf/
+!cp {DS}/data_stats.json outputs/run_records/ ; ls -R outputs/run_records report/figures'''),
+        code(ZIP.replace("{name}", "generation_outputs").replace("{paths}", "outputs/generations outputs/eval outputs/run_records report/figures")),
     ],
     "06_judge_kaggle.ipynb": [
         md("# 06 - Task 7: pairwise judging with Kaggle models\nCreate this notebook as a **utility benchmark** "
@@ -188,15 +211,26 @@ for f in glob.glob("/kaggle/input/**/outputs/eval/*.jsonl", recursive=True):
         shutil.copy(f, dst)
 !ls -l outputs/eval'''),
         code('''JUDGE = "google/gemini-3.6-flash"   # record the model actually used in the report
-for name in ["uf_dpo_vs_sft", "hh_dpo_vs_sft", "persona_lora_vs_instruct", "sft_vs_base_alpaca"]:
-    if not os.path.exists(f"outputs/eval/{name}_pairs.jsonl"):
-        print("missing", name); continue
-    !python scripts/judge_pairwise_kaggle.py --pairs_path outputs/eval/{name}_pairs.jsonl \\
-        --output_path outputs/eval/{name}_judged.jsonl --judge_model {JUDGE} \\
-        --batch_size 5 --sleep_seconds 5 --max_retries 3 --reuse_judgments'''),
+# (pairs file, judged-file name, criteria override)
+JOBS = [("uf_dpo_vs_sft", "uf_dpo_vs_sft", None),
+        ("hh_dpo_vs_sft", "hh_dpo_vs_sft", None),
+        ("persona_lora_vs_instruct", "persona_lora_vs_instruct", None),               # style + useful + safe
+        ("persona_lora_vs_instruct", "persona_lora_vs_instruct_style", "persona_style"),  # style only
+        ("persona_lora_vs_instruct", "persona_lora_vs_instruct_helpful", "helpful_safe"), # usefulness/safety only
+        ("sft_vs_base_alpaca", "sft_vs_base_alpaca", None),
+        ("xhh_dpo_vs_sft_alpaca", "xhh_dpo_vs_sft_alpaca", None),
+        ("xuf_dpo_vs_sft_hh", "xuf_dpo_vs_sft_hh", None)]
+for pairs, out, kind in JOBS:
+    if not os.path.exists(f"outputs/eval/{pairs}_pairs.jsonl"):
+        print("missing", pairs); continue
+    kind_arg = f"--eval_kind {kind}" if kind else ""
+    !python scripts/judge_pairwise_kaggle.py --pairs_path outputs/eval/{pairs}_pairs.jsonl \
+        --output_path outputs/eval/{out}_judged.jsonl --judge_model {JUDGE} {kind_arg} \
+        --batch_size 5 --sleep_seconds 5 --max_retries 3 --reuse_judgments
+    !python scripts/analyze_results.py --judged outputs/eval/{out}_judged.jsonl --pairs outputs/eval/{pairs}_pairs.jsonl --out report/analysis/{out}.md'''),
         code('''!python scripts/summarize_results.py --eval_dir outputs/eval --out report/results_table.md
 !cat report/results_table.md'''),
-        code(ZIP.replace("{name}", "judge_outputs").replace("{paths}", "outputs/eval report/results_table.md")),
+        code(ZIP.replace("{name}", "judge_outputs").replace("{paths}", "outputs/eval report/results_table.md report/analysis")),
     ],
 }
 

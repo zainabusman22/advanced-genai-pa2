@@ -133,6 +133,8 @@ def main():
     trainer_kwargs["processing_class" if "processing_class" in trainer_params else "tokenizer"] = tokenizer
     trainer = DPOTrainer(**trainer_kwargs)
     trainer.model.print_trainable_parameters()
+    n_trainable = sum(p.numel() for p in trainer.model.parameters() if p.requires_grad)
+    n_total = sum(p.numel() for p in trainer.model.parameters())
 
     trainer.train()
     final_eval = trainer.evaluate()
@@ -150,7 +152,9 @@ def main():
 
     write_json(out / "config.json", {**vars(args), "n_train": len(train_ds), "n_val": len(val_ds),
                                       "trl_version": trl.__version__, "final_eval": final_eval,
-                                      "fp16": use_cuda})
+                                      "fp16": use_cuda,
+                                      "trainable_params": n_trainable, "total_params": n_total,
+                                      "optimizer_steps": trainer.state.global_step})
     print("final eval:", final_eval)
 
 

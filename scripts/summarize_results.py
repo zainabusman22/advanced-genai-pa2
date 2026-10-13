@@ -32,7 +32,7 @@ def main():
     cat_lines = []
     for path in sorted(glob.glob(os.path.join(args.eval_dir, "*_summary.json"))):
         s = read_json(path)
-        name = f"{s['candidate']} vs {s['baseline']}"
+        name = f"{s['candidate']} vs {s['baseline']} [{s.get('criteria', '?')}]"
         lines.append(f"| {name} | {s['judge_model']} | {s['n_pairs']} | {s['wins']} | {s['ties']} | {s['losses']} | "
                      f"{s['unknown']} | {s['failed']} | {pct(s['win_rate_excluding_ties'])} | "
                      f"{pct(s['win_rate_ties_half'])} | {pct(s['position_A_rate_among_decided'])} |")

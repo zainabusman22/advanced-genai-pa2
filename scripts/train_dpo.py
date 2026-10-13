@@ -2,7 +2,7 @@
 
 The trainable policy and the frozen reference are both initialised from the
 SFT ``best`` checkpoint. With two GPUs the policy (fp32 weights, fp16
-autocast, GradScaler) lives on cuda:0 and the frozen fp16 reference on cuda:1.
+autocast, GradScaler) lives on cuda:0 and the frozen reference (fp32 weights, same fp16 autocast) on cuda:1.
 
 Logged to ``metrics.jsonl``:
   train rows: DPO loss, reward accuracy, reward margin, chosen/rejected rewards
@@ -68,6 +68,8 @@ def parse_args():
     p.add_argument("--no_fp16", action="store_true")
     p.add_argument("--gradient_checkpointing", action="store_true")
     p.add_argument("--save_dtype", default="fp32", choices=["fp32", "fp16"])
+    p.add_argument("--reference_dtype", default="fp32", choices=["fp32", "fp16"],
+                   help="fp32 + the same fp16 autocast as the policy makes step-0 rewards exactly 0")
     return p.parse_args()
 
 
@@ -142,7 +144,8 @@ def main():
     tokenizer = load_tokenizer(args.sft_path)
     policy = load_model(args.sft_path, pdev, torch.float32, args.gradient_checkpointing)
     policy.train()
-    reference = load_model(ref_path, rdev, torch.float16 if rdev.type == "cuda" else torch.float32)
+    ref_dtype = torch.float16 if (args.reference_dtype == "fp16" and rdev.type == "cuda") else torch.float32
+    reference = load_model(ref_path, rdev, ref_dtype)
     reference.eval()
     reference.requires_grad_(False)
 
@@ -170,7 +173,7 @@ def main():
     scaler = make_scaler(pdev, use_fp16)
 
     config = {**vars(args), "reference_path": ref_path, "policy_device": str(pdev), "reference_device": str(rdev),
-              "fp16_autocast": use_fp16, "reference_dtype": "fp16" if rdev.type == "cuda" else "fp32",
+              "fp16_autocast": use_fp16, "reference_dtype": str(ref_dtype),
               "n_train": len(train_rows), "n_val": len(val_rows), "total_optimizer_steps": total_steps,
               "effective_batch_size": args.batch_size * args.grad_accum}
     write_json(out / "config.json", config)
