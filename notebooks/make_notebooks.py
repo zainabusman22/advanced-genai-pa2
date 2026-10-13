@@ -83,13 +83,29 @@ def code(s):
 
 
 NOTEBOOKS = {
+    "00_data_cpu.ipynb": [
+        md("# 00 - Setup checks and data preparation (CPU only, no GPU quota)"),
+        code(SETUP.replace("!nvidia-smi\n", "")),
+        code('''import torch, transformers, datasets
+print("torch", torch.__version__, "| transformers", transformers.__version__, "| datasets", datasets.__version__)'''),
+        code("!PYTHONPATH=. python -m pytest -q tests/"),
+        code("!python scripts/prepare_data.py\n!wc -l data/processed/*.jsonl\n!cat data/processed/data_stats.json"),
+    ],
     "01_setup_data_sft.ipynb": [
         md("# 01 - Setup, data preparation, baseline generation, SFT\nAccelerator: **GPU T4 x2**, Internet **on**."),
         code(SETUP), code(VERSIONS),
         md("## Public + own adapter tests"),
         code("!PYTHONPATH=. python -m pytest -q tests/"),
-        md("## Data (UltraChat SFT, HH-RLHF, UltraFeedback, AlpacaEval 300 / seed 42)"),
-        code("!python scripts/prepare_data.py\n!wc -l data/processed/*.jsonl\n!ls -l eval_sets/"),
+        md("## Data (UltraChat SFT, HH-RLHF, UltraFeedback, AlpacaEval 300 / seed 42)\n"
+           "Reuses the output of the CPU notebook 00 if it is attached; otherwise prepares the data here."),
+        code('''hits = glob.glob("/kaggle/input/**/data/processed/data_stats.json", recursive=True)
+if hits:
+    shutil.copytree(os.path.dirname(hits[0]), "data/processed", dirs_exist_ok=True)
+    print("reusing prepared data from", os.path.dirname(hits[0]))
+else:
+    !python scripts/prepare_data.py
+!wc -l data/processed/*.jsonl
+!ls -l eval_sets/'''),
         md("## Task 2: baseline generation (Qwen2.5-0.5B base) on GPU 1 while SFT trains on GPU 0"),
         code('''import subprocess
 base_log = open("/kaggle/working/base_gen.log", "w")
