@@ -1,76 +1,93 @@
-# Small-Model Alignment Starter
+# Small-Model Alignment: SFT + DPO on Qwen2.5-0.5B
 
-This branch is the student starter package for the SFT + DPO alignment assignment. It is intentionally minimal: it provides the tested environment metadata, assignment PDF, fixed evaluation/data files, and no completed training implementation.
+Post-training pipeline for the Advanced GenAI PA2 assignment (see `docs/assignment_manual.pdf`):
 
-## What Is Included
+1. **SFT** of `Qwen/Qwen2.5-0.5B` on 30k UltraChat examples (own training loop).
+2. **From-scratch DPO** (own loss and loop) on 15k HH-RLHF pairs and, separately, 15k UltraFeedback pairs.
+3. **TRL `DPOTrainer` + LoRA** persona tuning of `HuggingFaceTB/SmolLM2-360M-Instruct` ("Idiot Sandwich").
+4. Fixed-prompt generation, blinded pairwise files, and resumable LLM-as-judge evaluation via `kaggle_benchmarks`.
+
+## Layout
 
 ```text
-requirements.txt
-pyproject.toml
-submission_adapter.py
-tests/test_public_adapter_smoke.py
-tests/toy_lm.py
-docs/assignment_manual.pdf
-data/persona_lora/ramsay_style_preferences.json
-data/persona_lora/README.md
-eval_sets/hh_rlhf_eval_300_seed42.json
+alignment/
+  core.py            batching, response-only log-probs, SFT loss, DPO loss   <- graded math
+  prompting.py       ChatML prompt template shared by SFT / DPO / generation
+  training.py        model/optimizer/AMP helpers
+  utils.py           I/O, seeding, LR schedule, checkpoint saving
+submission_adapter.py  thin wrappers around alignment/core.py (grading interface)
+scripts/
+  prepare_data.py        download + filter + subsample all datasets (seed 42)
+  train_sft.py           Task 3
+  train_dpo.py           Task 4 (used for both HH-RLHF and UltraFeedback)
+  train_lora_dpo.py      Task 5 (TRL DPOTrainer + PEFT LoRA)
+  generate.py            Tasks 2 and 6 (greedy, resumable)
+  build_pairs.py         blinded, A/B-randomised pairwise JSONL
+  judge_pairwise_kaggle.py  Task 7 (batched, retrying, resumable judge)
+  summarize_results.py   judge summaries -> Markdown table
+  plot_metrics.py        training curves for the report
+notebooks/             Kaggle driver notebooks 01-06 (regenerate with make_notebooks.py)
+eval_sets/             hh_rlhf_eval_300_seed42.json (provided), alpaca_eval_300_seed42.json,
+                       persona_style_eval_24.json
+tests/                 public smoke tests + own edge-case tests
+report/                report source and figures
 ```
 
-## Recommended Kaggle Setup
+## Design choices that matter for grading
 
-Use a Kaggle notebook with the `GPU T4 x2` accelerator. After cloning this repository/branch, run:
+* **Prompt format** (SFT, DPO and evaluation): Qwen ChatML,
+  `<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n{instruction}<|im_end|>\n<|im_start|>assistant\n`,
+  response followed by EOS. The tokenizer's EOS is set to `<|im_end|>`.
+* **Batching**: prompt and response tokenized separately (`add_special_tokens=False`), EOS appended
+  to the response *before* right-truncation to `max_length`, right-padded to the longest row.
+  Masks are built from true lengths, so `pad_token == eos_token` tokenizers are handled correctly.
+  `labels` are unshifted, `-100` on prompt and padding.
+* **Log-probs**: summed over response tokens only (shifted next-token prediction), float32.
+* **SFT loss reduction**: mean NLL over all unmasked response tokens in the batch.
+* **DPO loss**: `mean(-logsigmoid(beta * ((pi_c - pi_r) - (ref_c - ref_r))))`; reference forward
+  under `torch.no_grad()`.
+
+## Running
+
+Local checks (CPU, no downloads):
 
 ```bash
-python -m pip uninstall -y -q torchao || true
-python -m pip install -q "transformers>=4.43.0,<5" "datasets>=2.18,<5" huggingface_hub accelerate tqdm pyyaml sentencepiece safetensors pytest
-python -m pip install -q -e . --no-deps
+PYTHONPATH=. python -m pytest -q tests/
 ```
 
-This keeps Kaggle's preinstalled CUDA-compatible PyTorch intact, avoids known stale `torchao` / PEFT conflicts, and makes the local repository importable without replacing the GPU stack.
+On Kaggle (GPU T4 x2) run the notebooks in order. Each one saves its outputs for the next one to attach as an input dataset:
 
-## What You Need To Build
+| Notebook | Does | Approx. time |
+|---|---|---|
+| `01_setup_data_sft` | setup, tests, data prep, base generations (GPU1), SFT (GPU0) | ~2 h |
+| `02_dpo_hh` | DPO on HH-RLHF (policy GPU0, frozen fp16 reference GPU1) | ~2.5 h |
+| `03_dpo_uf` | DPO on UltraFeedback | ~2.5 h |
+| `04_lora_persona` | TRL + LoRA persona DPO, persona generations and pairs | ~0.3 h |
+| `05_generate_eval_outputs` | SFT / DPO generations, pairwise files | ~1 h |
+| `06_judge_kaggle` | judging with `google/gemini-3.6-flash` (benchmark notebook) | ~0.5 h |
 
-You will add your own training and evaluation code on top of this starter. At minimum, your project should implement:
+Notebooks 02, 03 and 04 are independent and can run at the same time in separate sessions.
 
-- SFT training on 30,000 examples.
-- From-scratch DPO on HH-RLHF-style preference data.
-- From-scratch DPO on UltraFeedback-style preference data.
-- TRL `DPOTrainer` + LoRA training on the provided persona preference data.
-- Generation and DPO-vs-SFT evaluation outputs.
-- A short final report with plots and analysis.
-
-Read `docs/assignment_manual.pdf` for the full requirements and suggested workflow.
-
-## Submission Adapter And Public Tests
-
-Keep the six function signatures in `submission_adapter.py` unchanged. Implement
-each function as a small wrapper around your own SFT/DPO code. The grader uses
-this stable interface so your internal file and class organization can remain
-your choice.
-
-Run the public tests from the repository root:
+Equivalent CLI:
 
 ```bash
-python -m pip install -q pytest
-PYTHONPATH=. python -m pytest -q tests/test_public_adapter_smoke.py
+python scripts/prepare_data.py
+python scripts/train_sft.py --output_dir outputs/sft
+python scripts/train_dpo.py --sft_path outputs/sft/best --train_path data/processed/hh_train.jsonl --val_path data/processed/hh_val.jsonl --output_dir outputs/dpo_hh
+python scripts/train_dpo.py --sft_path outputs/sft/best --train_path data/processed/uf_train.jsonl --val_path data/processed/uf_val.jsonl --output_dir outputs/dpo_uf
+python scripts/train_lora_dpo.py
+python scripts/generate.py --model_path outputs/dpo_uf/best --eval_set eval_sets/alpaca_eval_300_seed42.json --generator_name qwen2.5-0.5b-dpo-uf --output_path outputs/generations/alpaca/dpo_uf.json
+python scripts/build_pairs.py --model_path outputs/generations/alpaca/dpo_uf.json --baseline_path outputs/generations/alpaca/sft.json --output_path outputs/eval/uf_dpo_vs_sft_pairs.jsonl
+python scripts/judge_pairwise_kaggle.py --pairs_path outputs/eval/uf_dpo_vs_sft_pairs.jsonl --output_path outputs/eval/uf_dpo_vs_sft_judged.jsonl --judge_model google/gemini-3.6-flash --batch_size 5 --sleep_seconds 5 --max_retries 3 --reuse_judgments
 ```
 
-The tests use a tiny local tokenizer and model, so they do not download a model,
-load the assignment datasets, or require a GPU. The starter adapter raises
-`NotImplementedError` until you connect it to your implementation. Passing the
-public tests checks the interface and a few basic invariants; the private grader
-also checks numerical correctness and harder edge cases described in the manual.
+## Outputs (for reproducing the report tables)
 
-For `compute_sft_loss`, the assignment accepts either the mean of per-example
-summed response negative log probabilities or the mean over all unmasked response
-tokens. Use one reduction consistently and document it in the report.
-
-## Fixed Files
-
-- `eval_sets/hh_rlhf_eval_300_seed42.json` is the fixed synthetic helpful/harmless evaluation set.
-- For AlpacaEval-style evaluation, use 300 prompts with seed `42` so comparisons are consistent.
-- `data/persona_lora/ramsay_style_preferences.json` is the small preference dataset for the LoRA-DPO persona task.
-
-## Saving Work On Kaggle
-
-Kaggle sessions are temporary. Write important outputs under `/kaggle/working`, save notebook versions, and archive checkpoints/generations as zip files or Kaggle output datasets before ending a session.
+```text
+outputs/sft/{config.json, metrics.jsonl, best/, final/}
+outputs/dpo_hh/{config.json, metrics.jsonl, best/, final/}
+outputs/dpo_uf/{config.json, metrics.jsonl, best/, final/}
+outputs/lora_dpo_persona/{config.json, metrics.jsonl, adapter/, split.json}
+outputs/generations/{alpaca,hh,persona}/*.json
+outputs/eval/*_pairs.jsonl, *_judged.jsonl, *_failures.jsonl, *_summary.json
+```
