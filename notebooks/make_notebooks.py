@@ -236,7 +236,13 @@ JOBS = [("uf_dpo_vs_sft", "uf_dpo_vs_sft", None),
         ("persona_lora_vs_instruct", "persona_lora_vs_instruct_helpful", "helpful_safe"), # usefulness/safety only
         ("sft_vs_base_alpaca", "sft_vs_base_alpaca", None),
         ("xhh_dpo_vs_sft_alpaca", "xhh_dpo_vs_sft_alpaca", None),
-        ("xuf_dpo_vs_sft_hh", "xuf_dpo_vs_sft_hh", None)]
+        ("xuf_dpo_vs_sft_hh", "xuf_dpo_vs_sft_hh", None),
+        # documented deviations (section 14.3): stronger HH-DPO and LoRA v2
+        ("hh_dpo_lr5e-6_vs_sft", "hh_dpo_lr5e-6_vs_sft", None),
+        ("xhh_dpo_lr5e-6_vs_sft_alpaca", "xhh_dpo_lr5e-6_vs_sft_alpaca", None),
+        ("persona_lora_v2_vs_instruct", "persona_lora_v2_vs_instruct", None),
+        ("persona_lora_v2_vs_instruct", "persona_lora_v2_vs_instruct_style", "persona_style"),
+        ("persona_lora_v2_vs_instruct", "persona_lora_v2_vs_instruct_helpful", "helpful_safe")]
 for pairs, out, kind in JOBS:
     if not os.path.exists(f"outputs/eval/{pairs}_pairs.jsonl"):
         print("missing", pairs); continue
@@ -248,6 +254,55 @@ for pairs, out, kind in JOBS:
         code('''!python scripts/summarize_results.py --eval_dir outputs/eval --out report/results_table.md
 !cat report/results_table.md'''),
         code(ZIP.replace("{name}", "judge_outputs").replace("{paths}", "outputs/eval report/results_table.md report/analysis")),
+    ],
+    "02b_dpo_hh_lr5e-6.ipynb": [
+        md("# 02b - HH-RLHF DPO with a stronger learning rate (documented deviation)\n"
+           "Guide LR 1e-6 gave a small reward margin (0.21) and almost no change in refusals, so this run uses "
+           "LR 5e-6 with everything else unchanged. It then generates its own evaluation outputs with the same "
+           "decoding settings as notebook 05. Attach outputs of notebooks 00, 01 and 05."),
+        code(SETUP), code(VERSIONS), code(FIND),
+        code('''SFT_BEST = find_dir("sft/best/config.json")
+DATA = find_dir("data/processed/hh_train.jsonl")
+GENS = find_dir("generations/hh/sft.json")  # SFT generations from notebook 05
+!mkdir -p outputs/generations && cp -rn {GENS}/../* outputs/generations/ && ls -R outputs/generations'''),
+        code('''!python scripts/train_dpo.py --sft_path {SFT_BEST} \\
+    --train_path {DATA}/hh_train.jsonl --val_path {DATA}/hh_val.jsonl \\
+    --output_dir outputs/dpo_hh_lr5e-6 --beta 0.1 --lr 5e-6 --grad_accum 32
+assert os.path.exists("outputs/dpo_hh_lr5e-6/best/config.json"), "training failed"'''),
+        code('''import subprocess
+G, M = "python scripts/generate.py", "outputs/dpo_hh_lr5e-6/best"
+jobs = [f"{G} --device cuda:0 --model_path {M} --eval_set eval_sets/hh_rlhf_eval_300_seed42.json --generator_name qwen2.5-0.5b-dpo-hh-lr5e-6 --output_path outputs/generations/hh/dpo_hh_lr5e-6.json",
+        f"{G} --device cuda:1 --model_path {M} --eval_set eval_sets/alpaca_eval_300_seed42.json --generator_name qwen2.5-0.5b-dpo-hh-lr5e-6 --dataset_name alpaca_eval --output_path outputs/generations/alpaca/dpo_hh_lr5e-6.json"]
+procs = [subprocess.Popen(c, shell=True, stdout=open(f"/kaggle/working/gen{i}.log", "w"), stderr=subprocess.STDOUT) for i, c in enumerate(jobs)]
+print([p.wait() for p in procs])
+!tail -2 /kaggle/working/gen0.log /kaggle/working/gen1.log
+!python scripts/build_pairs.py --model_path outputs/generations/hh/dpo_hh_lr5e-6.json --baseline_path outputs/generations/hh/sft.json --eval_kind safety --output_path outputs/eval/hh_dpo_lr5e-6_vs_sft_pairs.jsonl
+!python scripts/build_pairs.py --model_path outputs/generations/alpaca/dpo_hh_lr5e-6.json --baseline_path outputs/generations/alpaca/sft.json --eval_kind general --output_path outputs/eval/xhh_dpo_lr5e-6_vs_sft_alpaca_pairs.jsonl'''),
+        code(ZIP.replace("{name}", "dpo_hh_lr5e-6_outputs").replace("{paths}", "outputs/dpo_hh_lr5e-6 outputs/generations outputs/eval")),
+    ],
+    "04b_lora_persona_v2.ipynb": [
+        md("# 04b - LoRA-DPO persona v2 (documented deviation)\n"
+           "v1 (LR 5e-5, 3 epochs) reached 100% validation preference accuracy but produced almost no visible style "
+           "change under greedy decoding, so v2 uses LR 2e-4 and 5 epochs; everything else unchanged."),
+        code(SETUP), code('!python -m pip install -q "trl>=0.19,<0.24" "peft>=0.13"'), code(VERSIONS),
+        code('''!python scripts/train_lora_dpo.py --output_dir outputs/lora_dpo_persona_v2 --lr 2e-4 --epochs 5
+assert os.path.exists("outputs/lora_dpo_persona_v2/adapter/adapter_config.json"), "LoRA training failed - see log above"'''),
+        code('''!python scripts/generate.py --model_path HuggingFaceTB/SmolLM2-360M-Instruct --template tokenizer \\
+    --eval_set eval_sets/persona_style_eval_24.json --generator_name smollm2-360m-instruct \\
+    --output_path outputs/generations/persona/instruct.json --max_new_tokens 256
+!python scripts/generate.py --model_path HuggingFaceTB/SmolLM2-360M-Instruct --template tokenizer \\
+    --adapter_path outputs/lora_dpo_persona_v2/adapter --eval_set eval_sets/persona_style_eval_24.json \\
+    --generator_name smollm2-360m-lora-dpo-persona-v2 --output_path outputs/generations/persona/lora_dpo_v2.json --max_new_tokens 256
+!python scripts/build_pairs.py --model_path outputs/generations/persona/lora_dpo_v2.json \\
+    --baseline_path outputs/generations/persona/instruct.json --eval_kind persona \\
+    --output_path outputs/eval/persona_lora_v2_vs_instruct_pairs.jsonl
+!python scripts/plot_metrics.py --lora outputs/lora_dpo_persona_v2/metrics.jsonl --out_dir report/figures_lora_v2'''),
+        code('''import json
+for a, b in zip(json.load(open("outputs/generations/persona/instruct.json")),
+                json.load(open("outputs/generations/persona/lora_dpo_v2.json"))):
+    print("PROMPT:", a["instruction"]); print("  INSTRUCT:", a["output"][:300]); print("  LORA-DPO v2:", b["output"][:300]); print()'''),
+        code(ZIP.replace("{name}", "lora_persona_v2_outputs").replace(
+            "{paths}", "outputs/lora_dpo_persona_v2 outputs/generations/persona outputs/eval report/figures_lora_v2")),
     ],
 }
 
