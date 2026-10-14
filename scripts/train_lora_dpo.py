@@ -21,9 +21,14 @@ from __future__ import annotations
 
 import argparse
 import inspect
+import os
 import random
 import sys
 from pathlib import Path
+
+# Must run before torch is imported: with two visible GPUs the HF Trainer wraps the
+# model in nn.DataParallel, which breaks PEFT/LoRA (tensors split across cuda:0/1).
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -116,6 +121,7 @@ def main():
         max_prompt_length=args.max_prompt_length,
         fp16=use_cuda,
         bf16=False,  # recent TRL defaults to bf16, which T4 GPUs do not support
+        gradient_checkpointing=False,  # 360M model fits easily; avoids PEFT checkpointing pitfalls
         use_cpu=not use_cuda,
         logging_steps=2,
         eval_strategy="steps",

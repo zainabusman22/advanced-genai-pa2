@@ -151,7 +151,8 @@ DATA = find_dir("data/processed/uf_train.jsonl")'''),
     "04_lora_persona.ipynb": [
         md("# 04 - Idiot Sandwich: TRL DPOTrainer + LoRA on SmolLM2-360M-Instruct"),
         code(SETUP), code('!python -m pip install -q "trl>=0.19,<0.24" "peft>=0.13"'), code(VERSIONS),
-        code("!python scripts/train_lora_dpo.py --output_dir outputs/lora_dpo_persona"),
+        code('''!python scripts/train_lora_dpo.py --output_dir outputs/lora_dpo_persona
+assert os.path.exists("outputs/lora_dpo_persona/adapter/adapter_config.json"), "LoRA training failed - see log above"'''),
         md("## Generate persona-eval outputs: instruct model (baseline) vs LoRA-DPO"),
         code('''!python scripts/generate.py --model_path HuggingFaceTB/SmolLM2-360M-Instruct --template tokenizer \\
     --eval_set eval_sets/persona_style_eval_24.json --generator_name smollm2-360m-instruct \\
