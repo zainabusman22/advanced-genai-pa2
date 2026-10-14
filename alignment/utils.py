@@ -9,11 +9,11 @@ import random
 import time
 from pathlib import Path
 
-import numpy as np
-import torch
-
 
 def set_seed(seed: int) -> None:
+    import numpy as np
+    import torch
+
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -78,6 +78,8 @@ def warmup_cosine(step: int, total: int, warmup: int) -> float:
 
 def save_checkpoint(model, tokenizer, out_dir, save_dtype: str = "fp32", extra: dict | None = None) -> None:
     """Save a HF checkpoint; optionally down-cast the saved weights to save disk."""
+
+    import torch
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)

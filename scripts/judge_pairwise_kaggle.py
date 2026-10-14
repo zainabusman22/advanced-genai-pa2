@@ -245,7 +245,8 @@ def summarize(judged, judge_model, pairs_path):
         "unknown_rate": counts["unknown"] / n if n else None,
         "failure_rate": counts["failed"] / n if n else None,
         "position_A_rate_among_decided": verdict_counts["A"] / max(1, verdict_counts["A"] + verdict_counts["B"]),
-        "total_attempts": sum(r.get("attempts", 0) for r in judged),
+        "mean_attempts_per_pair": sum(r.get("attempts", 0) for r in judged) / n if n else None,
+        "pairs_needing_retry": sum(r.get("attempts", 0) > 1 for r in judged),
         "by_category": {k: dict(v) for k, v in sorted(by_cat.items())},
     }
 
