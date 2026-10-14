@@ -307,6 +307,26 @@ for a, b in zip(json.load(open("outputs/generations/persona/instruct.json")),
 }
 
 
+def _variant(cells, replacements, title):
+    out = []
+    for kind, src in cells:
+        for old, new in replacements:
+            src = src.replace(old, new)
+        out.append((kind, src))
+    out[0] = md(title)
+    return out
+
+
+# LoRA v3: between v1 (too weak) and v2 (over-optimized: style up, usefulness/safety down).
+NOTEBOOKS["04c_lora_persona_v3.ipynb"] = _variant(
+    NOTEBOOKS["04b_lora_persona_v2.ipynb"],
+    [("--lr 2e-4 --epochs 5", "--lr 1e-4 --epochs 3"), ("persona_v2", "persona_v3"), ("lora_dpo_v2", "lora_dpo_v3"),
+     ("persona-v2", "persona-v3"), ("lora_v2_vs", "lora_v3_vs"), ("figures_lora_v2", "figures_lora_v3"),
+     ("LORA-DPO v2", "LORA-DPO v3"), ("lora_persona_v2_outputs", "lora_persona_v3_outputs")],
+    "# 04c - LoRA-DPO persona v3 (documented deviation)\n"
+    "v1 (LR 5e-5, 3 epochs) barely changed the style; v2 (LR 2e-4, 5 epochs) over-optimized (margin 8.2, val loss "
+    "0.001) and lost usefulness and safety. v3 uses the middle setting LR 1e-4, 3 epochs.")
+
 if __name__ == "__main__":
     for name, cells in NOTEBOOKS.items():
         (HERE / name).write_text(json.dumps(nb(cells), indent=1), encoding="utf-8")

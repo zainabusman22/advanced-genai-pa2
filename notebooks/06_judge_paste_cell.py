@@ -1,7 +1,7 @@
 # Task 7 judge: paste this whole file into ONE cell of a Kaggle Benchmarks notebook
 # (kaggle.com/benchmarks/tasks/new). Attach as inputs: the dataset
 # "advanced-genai-pa2-code" and the notebooks pa2-05-generate, pa2-04-lora,
-# pa2-04b-lora-v2 and pa2-02b-dpo-hh-lr5e-6.
+# pa2-04b-lora-v2, pa2-04c-lora-v3 and pa2-02b-dpo-hh-lr5e-6.
 #
 # Run first with TEST = True (judges 5 pairs, about 10 seconds), then set TEST = False and run again.
 TEST = True
@@ -77,6 +77,9 @@ else:
             ("persona_lora_v2_vs_instruct", "persona_lora_v2_vs_instruct", None),
             ("persona_lora_v2_vs_instruct", "persona_lora_v2_vs_instruct_style", "persona_style"),
             ("persona_lora_v2_vs_instruct", "persona_lora_v2_vs_instruct_helpful", "helpful_safe"),
+            ("persona_lora_v3_vs_instruct", "persona_lora_v3_vs_instruct", None),
+            ("persona_lora_v3_vs_instruct", "persona_lora_v3_vs_instruct_style", "persona_style"),
+            ("persona_lora_v3_vs_instruct", "persona_lora_v3_vs_instruct_helpful", "helpful_safe"),
             ("sft_vs_base_alpaca", "sft_vs_base_alpaca", None),
             ("xhh_dpo_vs_sft_alpaca", "xhh_dpo_vs_sft_alpaca", None),
             ("xhh_dpo_lr5e-6_vs_sft_alpaca", "xhh_dpo_lr5e-6_vs_sft_alpaca", None),
