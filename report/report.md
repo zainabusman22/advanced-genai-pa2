@@ -11,22 +11,22 @@
 - *Primary post-training pipeline:* `Qwen/Qwen2.5-0.5B` (494M parameters) serves as the base architecture across Supervised Fine-Tuning (SFT) and both from-scratch Direct Preference Optimization (DPO) tracks.
 - *Persona fine-tuning track:* `HuggingFaceTB/SmolLM2-360M-Instruct` (360M parameters) is used for parameter-efficient LoRA DPO tuning via TRL.
 
-**Data Processing and Curation.** All datasets were sampled deterministically by shuffling source splits with random seed 42 and extracting the first *N* instances that strictly satisfied the filtering criteria. Filtering metrics are archived in `results/data_stats.json`.
+**Data Processing and Curation.** All datasets were sampled deterministically by shuffling source splits with random seed 42 and extracting the first *N* instances that strictly satisfied the filtering criteria. Prompt-length filters count tokens with the Qwen2.5 tokenizer *after* the ChatML template (below) is applied. Filtering metrics are archived in `results/data_stats.json`. The same seed (42) is used throughout: data sampling, DataLoader shuffling in every training run, the LoRA train/validation split, the AlpacaEval subset, and the randomized A/B order of every pairwise judging file.
 
-| Track | Source split | Train | Val | Curation & filtering criteria (kept / scanned) |
+| Track | Source split | Train | Val | Curation & filtering criteria (kept / scanned: train; val) |
 |---|---|---|---|---|
-| SFT | `HuggingFaceH4/ultrachat_200k` (`train_sft` / `test_sft`) | 30,000 | 1,000 | First user → assistant exchange; formatted prompt ≤ 256 tokens (30,000 / 37,555). Sequences truncated to 512 tokens during training. |
-| HH-RLHF DPO | `Anthropic/hh-rlhf` (`train` / `test`) | 15,000 | 1,000 | Single-turn conversations only; identical prompt prefixes across pairs; chosen ≠ rejected; prompt length ≤ 256 tokens (15,000 / 49,027). |
-| UltraFeedback DPO | `HuggingFaceH4/ultrafeedback_binarized` (`train_prefs` / `test_prefs`) | 15,000 | 1,000 | Single-turn; pairs with tied scores removed; chosen ≠ rejected; prompt length ≤ 256 tokens (15,000 / 21,354). |
+| SFT | `HuggingFaceH4/ultrachat_200k` (`train_sft` / `test_sft`) | 30,000 | 1,000 | First user → assistant exchange; formatted prompt ≤ 256 tokens (30,000 / 37,555; 1,000 / 1,283). Sequences truncated to 512 tokens during training. |
+| HH-RLHF DPO | `Anthropic/hh-rlhf`, default config mixing the *helpful* and *harmless* subsets (`train` / `test`) | 15,000 | 1,000 | Single-turn conversations only; identical prompt prefixes across pairs; chosen ≠ rejected; prompt length ≤ 256 tokens (15,000 / 49,027; 1,000 / 3,244). |
+| UltraFeedback DPO | `HuggingFaceH4/ultrafeedback_binarized` (`train_prefs` / `test_prefs`) | 15,000 | 1,000 | Single-turn; pairs with tied scores removed; chosen ≠ rejected; prompt length ≤ 256 tokens (15,000 / 21,354; 1,000 / 1,407). |
 | LoRA persona DPO | `data/persona_lora/ramsay_style_preferences.json` | 200 | 20 | Deterministic 200 / 20 split under seed 42 (`results/runs/lora_v1/split.json`). |
 
-**Dataset Ingestion Note.** The filters discarded 69% of the scanned `Anthropic/hh-rlhf` records, predominantly multi-turn conversations removed by the single-turn filter. While this strictly avoids multi-turn formatting artifacts without complicating the prompt template, it skews the training distribution toward standalone queries compared to the broader conversational contexts found in the raw corpus.
+**Dataset Ingestion Note.** The filters discarded 69% of the scanned `Anthropic/hh-rlhf` records, predominantly multi-turn conversations removed by the single-turn filter. Because the default config mixes the *helpful* and *harmless* subsets, many "chosen" responses are ordinary helpful answers rather than refusals, which matters for interpreting Section 6. While the single-turn filter strictly avoids multi-turn formatting artifacts without complicating the prompt template, it skews the training distribution toward standalone queries compared to the broader conversational contexts found in the raw corpus.
 
 **Fixed Evaluation Sets.**
 
 - *General instruction quality:* `eval_sets/alpaca_eval_300_seed42.json`, consisting of 300 instructions sampled from `tatsu-lab/alpaca_eval` using `random.Random(42).sample`.
-- *Safety & harmlessness:* `eval_sets/hh_rlhf_eval_300_seed42.json`, containing 300 synthetic queries spanning 10 balanced categories (30 queries each).
-- *Persona & style alignment:* `eval_sets/persona_style_eval_24.json`, composed of 24 prompts balanced evenly across culinary domains, programming tasks, general utility queries, and safety-sensitive edge cases.
+- *Safety & harmlessness:* `eval_sets/hh_rlhf_eval_300_seed42.json`, provided with the assignment, containing 300 synthetic queries spanning 10 balanced categories (30 queries each).
+- *Persona & style alignment:* `eval_sets/persona_style_eval_24.json`, written for this project following the categories in the manual, composed of 24 prompts balanced evenly across culinary domains, programming tasks, general utility queries, and safety-sensitive edge cases.
 
 **Chat Templates and Tokenization Mechanics.** For Qwen2.5-0.5B, uniform tokenization conventions are maintained across SFT, both from-scratch DPO runs, and inference to prevent template mismatch. We apply the ChatML format:
 
@@ -35,6 +35,8 @@
 ```
 
 Tokenization occurs separately for the prompt and response spans without adding duplicate special tokens. The end-of-sequence token `<|im_end|>` is explicitly mapped to EOS and appended to the target response prior to right-side sequence truncation at 512 tokens. Prompt tokens and right-padded positions are mapped to label −100, ensuring log probabilities and training gradients are calculated strictly over assistant response spans. SFT loss reduction consistently adopts the mean negative log-likelihood over all unmasked response tokens in the batch. For SmolLM2-360M-Instruct, its native chat template is maintained through TRL's preprocessing pipeline.
+
+**Software Environment.** Kaggle notebooks with 2 × Tesla T4 (driver 580.178.04, CUDA 13.0): Python 3.13, PyTorch 2.11.0 (CUDA 12.8 build), Transformers 4.57.6, Datasets 4.8.5, TRL 0.23.1 and PEFT 0.20 (preinstalled). Kaggle's preinstalled PyTorch was kept, and Transformers was pinned below 5 as the manual recommends.
 
 ## 2. Experimental Configuration
 
