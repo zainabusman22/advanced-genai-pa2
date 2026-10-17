@@ -1,4 +1,4 @@
-\documentclass[11pt,a4paper]{article}
+\documentclass[10pt,a4paper]{article}
 
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
@@ -16,10 +16,10 @@
 \usepackage[section]{placeins}
 \usepackage[compact]{titlesec}
 
-\setlength{\parskip}{4pt plus 1pt}
-\setlength{\textfloatsep}{8pt plus 2pt}
-\setlength{\intextsep}{8pt plus 2pt}
-\setlist{itemsep=1pt,topsep=3pt}
+\setlength{\parskip}{5pt plus 1pt}
+\setlength{\textfloatsep}{10pt plus 2pt}
+\setlength{\intextsep}{10pt plus 2pt}
+\setlist{itemsep=2pt,topsep=3pt}
 \newcolumntype{Y}{>{\raggedright\arraybackslash}X}
 \newcolumntype{C}[1]{>{\centering\arraybackslash}p{#1}}
 \newcommand{\code}[1]{\texttt{#1}}
@@ -57,7 +57,12 @@ LoRA persona DPO & Provided persona preference set & 200 / 20 & Random split (se
 \end{tabularx}
 \end{table}
 
-\para{Evaluation sets:} All models in a comparison answer the same fixed prompts. AlpacaEval~\cite{dubois2024} uses 300 instructions sampled from \nolinkurl{tatsu-lab/alpaca_eval} with seed 42 (\nolinkurl{eval_sets/alpaca_eval_300_seed42.json}). The safety set is the 300-prompt synthetic helpful/harmless set provided with the assignment, with 10 categories of 30 prompts (\nolinkurl{eval_sets/hh_rlhf_eval_300_seed42.json}). The persona set has 24 prompts I wrote for this project, 6 each on cooking, coding, general help and safety-sensitive topics (\nolinkurl{eval_sets/persona_style_eval_24.json}).
+\para{Evaluation sets:} All models in a comparison answer the same fixed prompts:
+\begin{itemize}
+  \item AlpacaEval~\cite{dubois2024} (\nolinkurl{eval_sets/alpaca_eval_300_seed42.json}): 300 instructions sampled from \nolinkurl{tatsu-lab/alpaca_eval} with seed 42.
+  \item Safety set (\nolinkurl{eval_sets/hh_rlhf_eval_300_seed42.json}): the 300-prompt synthetic helpful/harmless set provided with the assignment, with 10 categories of 30 prompts.
+  \item Persona set (\nolinkurl{eval_sets/persona_style_eval_24.json}): 24 prompts I wrote for this project, 6 each on cooking, coding, general help and safety-sensitive topics.
+\end{itemize}
 
 \para{Prompt format:} All Qwen models use the same ChatML template in SFT, DPO and generation, with the system prompt ``You are a helpful assistant.'':
 \begin{center}
@@ -119,8 +124,7 @@ and margin (0) match the behavior described in Section~10.5 of the manual.
 
 \para{Performance-driven changes:} I added a repetition penalty of 1.1 because
 the manual allows it for small models that fall into repetitive loops.
-Applying it identically to every model keeps all comparisons fair, and its
-effect was not measured separately. I ran
+Applying it identically to every model keeps all comparisons fair. I ran
 HH-RLHF DPO a second time at a higher learning rate because the guide run
 barely moved the model: its validation margin reached only 0.21, and
 keyword refusals on the safety set rose only from 6.7\% to 8.0\%. For the
@@ -137,6 +141,7 @@ effects.
 \toprule
 Experiment & Initial setting & Changed setting & Observed effect \\
 \midrule
+Decoding & Greedy & Greedy + repetition penalty 1.1 (all models) & Applied consistently to all models; effect not measured separately. \\
 HH-RLHF DPO & LR $1\times10^{-6}$ & LR $5\times10^{-6}$ (additional run; both reported) & Validation accuracy remained similar (0.615 vs.\ 0.617). Safety-set win rate increased (58.3\% to 61.3\%), while AlpacaEval win rate decreased (50.2\% to 42.3\%). \\
 LoRA persona & v1: LR $5\times10^{-5}$, 3 epochs & v3: LR $1\times10^{-4}$, 3 epochs (selected) & Clear persona with helpfulness and safety near the baseline. v2 (LR $2\times10^{-4}$, 5 epochs) produced a stronger persona but reduced helpfulness and safety. \\
 \bottomrule
@@ -160,7 +165,7 @@ v3.
 
 \begin{figure}[!htb]
 \centering
-\includegraphics[width=0.5\textwidth]{figures/sft_loss.png}
+\includegraphics[width=0.62\textwidth]{figures/sft_loss.png}
 \caption{SFT loss on 30k UltraChat examples. Training loss is shown raw and with EMA smoothing (0.8); validation loss is measured on 1,000 held-out examples every 100 steps. The star marks the selected checkpoint.}
 \label{fig:sft}
 \end{figure}
@@ -171,12 +176,29 @@ Validation loss decreases steadily from 1.457 to 1.406 over the run (Figure~\ref
 
 \begin{figure}[!htb]
 \centering
-\includegraphics[width=0.9\textwidth]{figures/dpo_curves.png}
+\includegraphics[width=\textwidth]{figures/dpo_curves.png}
 \caption{Full-parameter DPO from the best SFT checkpoint ($\beta=0.1$). Training curves are EMA-smoothed (0.8); validation metrics are measured on 1,000 pairs every 50 steps. Stars mark the selected checkpoints.}
 \label{fig:dpo}
 \end{figure}
 
-All runs start from the step-0 values discussed in Section~3 (Figure~\ref{fig:dpo}). UltraFeedback shows the clearest preference learning. Its validation accuracy reaches 0.724 and its margin 0.73, and both are still improving at the final step. HH-RLHF learns much less. At $10^{-6}$ its accuracy plateaus around 0.60--0.62 (best 0.615 at step 350) with a margin of only 0.21. At $5\times10^{-6}$ the margin grows to 0.40, but accuracy barely changes (best 0.617 at step 400) and validation loss rises above $\log 2$. A validation loss above $\log 2$, while accuracy stays above 0.5, means the pairs the model gets wrong are being ranked wrong with large margins. A larger margin is therefore not evidence of better preference learning here. This behaviour is consistent with inconsistent or noisy HH-RLHF preference labels, though the metrics alone do not prove the cause. In all runs, the rejected-response reward falls faster than the chosen-response reward rises, so DPO mainly learns by lowering the likelihood of rejected responses. For HH-RLHF, the best and final checkpoints differ by only about 0.01 in accuracy. This is within the noise expected on 1,000 validation pairs, so the choice of checkpoint matters little there. Validation preference metrics also do not measure generation quality. UltraFeedback learns its preferences best, yet Section~5 shows that its generations only tie with SFT.
+All runs start from the step-0 values discussed in Section~3 (Figure~\ref{fig:dpo}). Table~\ref{tab:dpo-behavior} summarizes how they evolve.
+
+\begin{table}[!htb]
+\centering\small
+\caption{Validation behavior of the full-parameter DPO runs.}
+\label{tab:dpo-behavior}
+\begin{tabularx}{\textwidth}{@{}p{3.0cm}C{2.8cm}C{1.8cm}Y@{}}
+\toprule
+Run & Best val accuracy (step) & Final margin & Main observation \\
+\midrule
+UltraFeedback & 0.724 (469) & 0.73 & Accuracy and margin still improving at the final step. \\
+HH-RLHF, LR $10^{-6}$ & 0.615 (350) & 0.21 & Accuracy plateaus around 0.60--0.62 with a small margin. \\
+HH-RLHF, LR $5\times10^{-6}$ & 0.617 (400) & 0.40 & Margin grows, but accuracy barely changes and validation loss rises above $\log 2$. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+UltraFeedback shows the clearest preference learning. HH-RLHF learns much less, and raising its learning rate increases the margin without improving accuracy. A validation loss above $\log 2$, while accuracy stays above 0.5, means the pairs the model gets wrong are being ranked wrong with large margins. A larger margin is therefore not evidence of better preference learning here. This behaviour is consistent with inconsistent or noisy HH-RLHF preference labels, though the metrics alone do not prove the cause. In all runs, the rejected-response reward falls faster than the chosen-response reward rises, so DPO mainly learns by lowering the likelihood of rejected responses. For HH-RLHF, the best and final checkpoints differ by only about 0.01 in accuracy. This is within the noise expected on 1,000 validation pairs, so the choice of checkpoint matters little there. Validation preference metrics also do not measure generation quality. UltraFeedback learns its preferences best, yet Section~5 shows that its generations only tie with SFT.
 
 Pre-clipping gradient norms are large, with medians of about 44 for HH-RLHF and 59 for UltraFeedback, so clipping at 1.0 is active on almost every step. In the UltraFeedback run, two early FP16 overflows caused the GradScaler to skip those updates and reduce its scale, which is the expected recovery behaviour of dynamic loss scaling. Neither effect destabilized training.
 
@@ -184,7 +206,7 @@ Pre-clipping gradient norms are large, with medians of about 44 for HH-RLHF and 
 
 \begin{figure}[!htb]
 \centering
-\includegraphics[width=0.9\textwidth]{figures/lora_dpo_curves.png}
+\includegraphics[width=\textwidth]{figures/lora_dpo_curves.png}
 \caption{LoRA-DPO training and validation curves for v1, v2 and v3 (SmolLM2-360M-Instruct, 200 training and 20 validation pairs, $\beta=0.1$). Training loss is unsmoothed, validation loss is on a log scale, and the star marks the selected checkpoint.}
 \label{fig:lora}
 \end{figure}
@@ -327,7 +349,26 @@ Across the three experiments, stronger preference optimization did not reliably 
   \item \textbf{Failed run.} The first LoRA-DPO run failed because the trainer split the model across both GPUs. I reran it unchanged on a single GPU.
 \end{itemize}
 
-\para{Reproducibility:} The Kaggle notebooks \code{notebooks/00}--\code{05}, \code{02b} and \code{04b/04c} reproduce training and generation on T4$\times$2, and \code{scripts/run\_all\_judging.py} reruns the judging. Model checkpoints are stored in the Kaggle notebook outputs \code{pa2-01-sft}, \code{pa2-02-dpo-hh}, \code{pa2-02b-dpo-hh-lr5e-6}, \code{pa2-03-dpo-uf} and \code{pa2-04/04b/04c}. In the repository, each run's configuration and metrics are in \nolinkurl{results/runs/<run>/} (\code{config.json}, \code{metrics.jsonl}, \code{summary.json}) and the data statistics in \nolinkurl{results/data_stats.json}. Generated responses are in \nolinkurl{results/generations/}, and the blinded pairs, judgments, summaries and failure logs are in \nolinkurl{results/eval/}. \nolinkurl{report/results_table.md} collects every comparison, and \nolinkurl{report/analysis/} holds the per-comparison evidence behind Section~\ref{sec:interp}. All figures are generated from these logged metrics with \nolinkurl{scripts/plot_metrics.py}.
+\para{Reproducibility:} The Kaggle notebooks \code{notebooks/00}--\code{05}, \code{02b} and \code{04b/04c} reproduce training and generation on T4$\times$2, and \code{scripts/run\_all\_judging.py} reruns the judging. Model checkpoints are stored in the Kaggle notebook outputs \code{pa2-01-sft}, \code{pa2-02-dpo-hh}, \code{pa2-02b-dpo-hh-lr5e-6}, \code{pa2-03-dpo-uf} and \code{pa2-04/04b/04c}. Table~\ref{tab:paths} lists where every other result is stored in the repository. All figures are generated from the logged metrics with \nolinkurl{scripts/plot_metrics.py}.
+
+\begin{table}[!htb]
+\centering\small
+\caption{Location of the results behind every table and figure in this report.}
+\label{tab:paths}
+\begin{tabularx}{\textwidth}{@{}p{5.2cm}Y@{}}
+\toprule
+Artifact & Repository path \\
+\midrule
+Run configurations and training metrics & \nolinkurl{results/runs/<run>/} (\code{config.json}, \code{metrics.jsonl}, \code{summary.json}) \\
+Data statistics & \nolinkurl{results/data_stats.json} \\
+Generated responses & \nolinkurl{results/generations/} (\code{alpaca}, \code{hh}, \code{persona}) \\
+Blinded comparison pairs & \nolinkurl{results/eval/*_pairs.jsonl} \\
+Judgments, summaries and failure logs & \nolinkurl{results/eval/*_judged.jsonl}, \nolinkurl{*_summary.json}, \nolinkurl{*_failures.jsonl} \\
+All comparisons in one table & \nolinkurl{report/results_table.md} \\
+Per-comparison evidence (Section~\ref{sec:interp}) & \nolinkurl{report/analysis/} \\
+\bottomrule
+\end{tabularx}
+\end{table}
 
 {\small
 \begin{thebibliography}{9}
