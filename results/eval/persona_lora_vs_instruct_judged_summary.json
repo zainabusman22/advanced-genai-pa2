@@ -1,0 +1,42 @@
+{
+  "pairs_path": "D:\\New folder\\uni\\Advanced GenAI\\PA2\\small-model-alignment-starter\\results\\eval\\persona_lora_vs_instruct_pairs.jsonl",
+  "judge_model": "google/gemini-3.6-flash",
+  "candidate": "smollm2-360m-lora-dpo-persona",
+  "baseline": "smollm2-360m-instruct",
+  "n_pairs": 24,
+  "wins": 5,
+  "losses": 5,
+  "ties": 14,
+  "unknown": 0,
+  "failed": 0,
+  "win_rate_excluding_ties": 0.5,
+  "win_rate_ties_half": 0.5,
+  "win_rate_over_all": 0.20833333333333334,
+  "tie_rate": 0.5833333333333334,
+  "unknown_rate": 0.0,
+  "failure_rate": 0.0,
+  "position_A_rate_among_decided": 0.7,
+  "mean_attempts_per_pair": 1.0,
+  "pairs_needing_retry": 0,
+  "by_category": {
+    "coding": {
+      "loss": 2,
+      "win": 2,
+      "tie": 2
+    },
+    "cooking": {
+      "tie": 2,
+      "loss": 2,
+      "win": 2
+    },
+    "general_help": {
+      "loss": 1,
+      "tie": 4,
+      "win": 1
+    },
+    "safety": {
+      "tie": 6
+    }
+  },
+  "criteria": "persona"
+}

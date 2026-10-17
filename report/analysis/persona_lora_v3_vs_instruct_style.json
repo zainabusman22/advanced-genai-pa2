@@ -1,0 +1,38 @@
+{
+  "smollm2-360m-lora-dpo-persona-v3": {
+    "mean_words": 106.25,
+    "median_words": 83.5,
+    "empty_responses": 0,
+    "refusal_rate": 0.041666666666666664
+  },
+  "smollm2-360m-instruct": {
+    "mean_words": 124.41666666666667,
+    "median_words": 122.0,
+    "empty_responses": 0,
+    "refusal_rate": 0.125
+  },
+  "longer_response_wins_rate": 0.5,
+  "candidate_longer_rate": 0.5416666666666666,
+  "refusals_by_category": {
+    "cooking": {
+      "n": 6,
+      "cand_refusals": 0,
+      "base_refusals": 2
+    },
+    "coding": {
+      "n": 6,
+      "cand_refusals": 0,
+      "base_refusals": 0
+    },
+    "general_help": {
+      "n": 6,
+      "cand_refusals": 1,
+      "base_refusals": 1
+    },
+    "safety": {
+      "n": 6,
+      "cand_refusals": 0,
+      "base_refusals": 0
+    }
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "pairs_path": "D:\\New folder\\uni\\Advanced GenAI\\PA2\\small-model-alignment-starter\\results\\eval\\sft_vs_base_alpaca_pairs.jsonl",
+  "judge_model": "google/gemini-3.6-flash",
+  "candidate": "qwen2.5-0.5b-sft",
+  "baseline": "qwen2.5-0.5b-base",
+  "n_pairs": 300,
+  "wins": 226,
+  "losses": 64,
+  "ties": 10,
+  "unknown": 0,
+  "failed": 0,
+  "win_rate_excluding_ties": 0.7793103448275862,
+  "win_rate_ties_half": 0.77,
+  "win_rate_over_all": 0.7533333333333333,
+  "tie_rate": 0.03333333333333333,
+  "unknown_rate": 0.0,
+  "failure_rate": 0.0,
+  "position_A_rate_among_decided": 0.496551724137931,
+  "mean_attempts_per_pair": 1.0833333333333333,
+  "pairs_needing_retry": 20,
+  "by_category": {
+    "all": {
+      "win": 226,
+      "loss": 64,
+      "tie": 10
+    }
+  },
+  "criteria": "general"
+}

@@ -1,0 +1,29 @@
+{
+  "pairs_path": "D:\\New folder\\uni\\Advanced GenAI\\PA2\\small-model-alignment-starter\\results\\eval\\xhh_dpo_lr5e-6_vs_sft_alpaca_pairs.jsonl",
+  "judge_model": "google/gemini-3.6-flash",
+  "candidate": "qwen2.5-0.5b-dpo-hh-lr5e-6",
+  "baseline": "qwen2.5-0.5b-sft",
+  "n_pairs": 300,
+  "wins": 105,
+  "losses": 143,
+  "ties": 52,
+  "unknown": 0,
+  "failed": 0,
+  "win_rate_excluding_ties": 0.42338709677419356,
+  "win_rate_ties_half": 0.43666666666666665,
+  "win_rate_over_all": 0.35,
+  "tie_rate": 0.17333333333333334,
+  "unknown_rate": 0.0,
+  "failure_rate": 0.0,
+  "position_A_rate_among_decided": 0.6008064516129032,
+  "mean_attempts_per_pair": 1.0833333333333333,
+  "pairs_needing_retry": 20,
+  "by_category": {
+    "all": {
+      "loss": 143,
+      "win": 105,
+      "tie": 52
+    }
+  },
+  "criteria": "general"
+}

@@ -1,0 +1,62 @@
+{
+  "sft_train": {
+    "kept": 30000,
+    "scanned": 37555,
+    "rejected_by_filters": 7555,
+    "source_size": 207865,
+    "seed": 42
+  },
+  "sft_val": {
+    "kept": 1000,
+    "scanned": 1283,
+    "rejected_by_filters": 283,
+    "source_size": 23110,
+    "seed": 42
+  },
+  "hh_train": {
+    "kept": 15000,
+    "scanned": 49027,
+    "rejected_by_filters": 34027,
+    "source_size": 160800,
+    "seed": 42
+  },
+  "hh_val": {
+    "kept": 1000,
+    "scanned": 3244,
+    "rejected_by_filters": 2244,
+    "source_size": 8552,
+    "seed": 42
+  },
+  "uf_train": {
+    "kept": 15000,
+    "scanned": 21354,
+    "rejected_by_filters": 6354,
+    "source_size": 61135,
+    "seed": 42
+  },
+  "uf_val": {
+    "kept": 1000,
+    "scanned": 1407,
+    "rejected_by_filters": 407,
+    "source_size": 2000,
+    "seed": 42
+  },
+  "settings": {
+    "out_dir": "/kaggle/working/advanced-genai-pa2/data/processed",
+    "tokenizer": "Qwen/Qwen2.5-0.5B",
+    "seed": 42,
+    "sft_train": 30000,
+    "sft_val": 1000,
+    "dpo_train": 15000,
+    "dpo_val": 1000,
+    "max_prompt_tokens": 256,
+    "max_length": 512,
+    "alpaca_n": 300,
+    "only": [
+      "sft",
+      "hh",
+      "uf",
+      "alpaca"
+    ]
+  }
+}
