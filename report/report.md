@@ -1,79 +1,221 @@
-# Instruction Tuning and DPO on Qwen2.5-0.5B: Final Report
+# Instruction Tuning and Direct Preference Optimization on Qwen2.5-0.5B
 
-> Draft skeleton. Every `TBD` comes from the Kaggle runs: `outputs/*/config.json`, `outputs/*/summary.json`,
-> `outputs/eval/*_summary.json` and `report/results_table.md`. Keep the final PDF to 8 pages or fewer.
+**Advanced GenAI, PA2: Final Report** · Zainab Usman (27100409)
 
-## 1. Repository, models, and data
+## 1. Repository, Models, and Data
 
-* Repository: `TBD (GitHub URL)`
-* Base model: `Qwen/Qwen2.5-0.5B`. Persona model: `HuggingFaceTB/SmolLM2-360M-Instruct`.
-* Global seed: 42 (data subsampling, DataLoader shuffling, AlpacaEval subset, A/B randomisation).
+**Repository:** <https://github.com/zainabusman22/advanced-genai-pa2>. It is private, and course staff are added as collaborators. The core math (batching, response masking, log-probs, SFT and DPO losses) is in `alignment/core.py` and is exposed through `submission_adapter.py`. The public smoke tests pass, as do 28 additional tests (edge cases and cross-checks against Hugging Face's built-in causal-LM loss).
 
-| Track | Source | Train | Val | Filtering |
+**Models.** SFT and both from-scratch DPO runs use `Qwen/Qwen2.5-0.5B` (494M parameters). The LoRA persona task uses `HuggingFaceTB/SmolLM2-360M-Instruct`.
+
+**Data.** Every subset was drawn by shuffling the source split with seed 42 and keeping the first N rows that pass the filters. Statistics are in `results/data_stats.json`.
+
+| Track | Source (train / val split) | Train | Val | Filters (kept / scanned, train) |
 |---|---|---|---|---|
-| SFT | `HuggingFaceH4/ultrachat_200k` (`train_sft` / `test_sft`) | 30,000 | 1,000 | first user→assistant turn only; templated prompt ≤ 256 tokens |
-| HH-RLHF DPO | `Anthropic/hh-rlhf` (`train` / `test`) | 15,000 | 1,000 | single-turn only; identical prompt in chosen/rejected; chosen ≠ rejected; prompt ≤ 256 tokens |
-| UltraFeedback DPO | `HuggingFaceH4/ultrafeedback_binarized` (`train_prefs` / `test_prefs`) | 15,000 | 1,000 | 2-message conversations; no score ties; chosen ≠ rejected; prompt ≤ 256 tokens |
-| LoRA persona DPO | `data/persona_lora/ramsay_style_preferences.json` | 200 | 20 | random split, seed 42 (`outputs/lora_dpo_persona/split.json`) |
+| SFT | `HuggingFaceH4/ultrachat_200k` (`train_sft` / `test_sft`) | 30,000 | 1,000 | first user→assistant turn; templated prompt ≤ 256 tokens (30,000 / 37,555) |
+| HH-RLHF DPO | `Anthropic/hh-rlhf` (`train` / `test`) | 15,000 | 1,000 | single-turn only; identical prompt in chosen/rejected; chosen ≠ rejected; prompt ≤ 256 tokens (15,000 / 49,027) |
+| UltraFeedback DPO | `HuggingFaceH4/ultrafeedback_binarized` (`train_prefs` / `test_prefs`) | 15,000 | 1,000 | single-turn; no score ties; chosen ≠ rejected; prompt ≤ 256 tokens (15,000 / 21,354) |
+| LoRA persona DPO | `data/persona_lora/ramsay_style_preferences.json` | 200 | 20 | random split, seed 42 (`results/runs/lora_v1/split.json`) |
 
-Evaluation sets: `eval_sets/hh_rlhf_eval_300_seed42.json` (provided, 300), `eval_sets/alpaca_eval_300_seed42.json`
-(300 prompts of `tatsu-lab/alpaca_eval` sampled with `random.Random(42).sample`), and `eval_sets/persona_style_eval_24.json`
-(24 prompts: 6 cooking, 6 coding, 6 general help, 6 safety-sensitive).
+Most HH-RLHF conversations are multi-turn, so only 31% of scanned rows survive the single-turn filter.
 
-Prompt template (SFT, DPO, generation): Qwen ChatML with system prompt "You are a helpful assistant.". The response
-is followed by `<|im_end|>` (used as EOS). The persona model uses SmolLM2's own chat template via TRL.
+**Fixed evaluation sets:**
+- `eval_sets/alpaca_eval_300_seed42.json`: 300 prompts from `tatsu-lab/alpaca_eval`, `random.Random(42).sample`.
+- `eval_sets/hh_rlhf_eval_300_seed42.json`: the provided synthetic helpful/harmless set, 10 categories × 30.
+- `eval_sets/persona_style_eval_24.json`: 24 prompts, 6 each of cooking, coding, general help and safety-sensitive.
 
-## 2. Experimental configuration
+**Prompt format.** SFT, DPO and all Qwen generation use the same ChatML template: system "You are a helpful assistant.", then `<|im_start|>user\n{instruction}<|im_end|>\n<|im_start|>assistant\n`. The response is followed by `<|im_end|>`, which is set as the tokenizer's EOS. Prompt and response are tokenized separately (no special tokens), EOS is appended before right-truncation to 512 tokens, and prompt and padding positions get label −100. SmolLM2 uses its own chat template, applied by TRL.
 
-| | SFT | HH-RLHF DPO | UltraFeedback DPO | LoRA-DPO (persona) |
+## 2. Experimental Configuration
+
+All Qwen runs use full fine-tuning with fp32 master weights, fp16 autocast and a dynamic GradScaler on a Kaggle T4, plus AdamW (β = 0.9, 0.95), gradient clipping at 1.0, seed 42, max length 512 (prompt ≤ 256) and 1 epoch.
+
+**SFT loss reduction:** mean NLL over all unmasked response tokens in each micro-batch.
+
+**DPO setup:** the policy sits on `cuda:0`. The frozen reference is a second copy of the SFT `best` checkpoint (`pa2-01-sft/outputs/sft/best`) on `cuda:1`, run in fp32 under the same autocast with `torch.no_grad`, so at step 0 the policy and reference agree exactly.
+
+| Run | Trainable params | LR / schedule | WD | Batch × accum = eff. | Steps | β | Init → reference | Selected ckpt |
+|---|---|---|---|---|---|---|---|---|
+| SFT | full (494M) | 2e-5, 3% warmup (28 steps) + cosine | 0.1 | 2 × 16 = 32 | 938 | – | Qwen2.5-0.5B | min val loss (step 938) |
+| HH-RLHF DPO | full | 1e-6 constant | 0 | 1 × 32 = 32 | 469 | 0.1 | SFT best → frozen SFT best | max val reward acc. (step 350) |
+| HH-RLHF DPO, LR 5e-6 *(deviation)* | full | 5e-6 constant | 0 | 1 × 32 = 32 | 469 | 0.1 | same | max val reward acc. (step 400) |
+| UltraFeedback DPO | full | 1e-6 constant | 0 | 1 × 32 = 32 | 469 | 0.1 | same | max val reward acc. (step 469) |
+| LoRA-DPO v3 *(submitted)* | LoRA r = 16, α = 32, dropout 0.05; q,k,v,o,gate,up,down (8.68M = 2.3%) | 1e-4, 10% warmup + cosine | 0 | 4 × 4 = 16 | 39 (3 ep.) | 0.1 | SmolLM2-Instruct → same with adapter disabled | final |
+
+LoRA-DPO was trained with TRL 0.23.1 `DPOTrainer` on one GPU in fp16 AMP, with max length 512 and max prompt length 256.
+
+**Generation** (identical for every model in a comparison): greedy decoding (`do_sample=False`, so temperature and top-p are unused), `num_beams=1`, `repetition_penalty=1.1`, no length penalty and no n-gram constraint. Qwen models use max 512 new tokens with the ChatML template above. SmolLM2 models use max 256 new tokens with their tokenizer chat template. Generation stops at `<|im_end|>` or `<|endoftext|>`.
+
+## 3. Parameter Choices and Deviations
+
+**Resource-driven changes.** None were needed. The guide configuration fit on T4×2. The only implementation choice is where the frozen reference lives: in fp32 on the second GPU, where the guide allows fp16. That makes the step-0 rewards exactly zero, as Section 10.5 of the manual predicts.
+
+**Performance-driven changes.** Every original run is kept, and every variant was judged against the same SFT baseline on the same prompts.
+
+| Track | Guide / first value | Variant | Evidence that motivated it | Outcome |
 |---|---|---|---|---|
-| Init / reference | Qwen2.5-0.5B / – | SFT `best` / frozen SFT `best` (fp16, cuda:1) | SFT `best` / frozen SFT `best` (fp16, cuda:1) | SmolLM2-360M-Instruct / same base, adapter disabled |
-| Trainable params | full FT (494M) | full FT | full FT | LoRA r=16, α=32, dropout 0.05, q/k/v/o/gate/up/down |
-| Optimizer | AdamW (0.9, 0.95) | AdamW | AdamW | AdamW (TRL default) |
-| Peak LR / schedule | 2e-5, 3% warmup + cosine | 1e-6 constant | 1e-6 constant | 5e-5, 10% warmup + cosine |
-| Weight decay / clip | 0.1 / 1.0 | 0 / 1.0 | 0 / 1.0 | 0 / 1.0 |
-| Batch × accum = eff. | 2 × 16 = 32 | 1 × 32 = 32 | 1 × 32 = 32 | 4 × 4 = 16 |
-| Precision | fp32 weights, fp16 autocast, GradScaler | same | same | fp32 weights, fp16 AMP |
-| Max length (prompt) | 512 (256) | 512 (256) | 512 (256) | 512 (256) |
-| Epochs / optimizer steps | 1 / TBD | 1 / TBD | 1 / TBD | 3 / TBD |
-| β | – | 0.1 | 0.1 | 0.1 |
-| Checkpoint selection | min val loss | max val reward accuracy | max val reward accuracy | final |
+| HH-RLHF DPO | LR 1e-6 | LR 5e-6 | At 1e-6 the val margin was only 0.21, and keyword refusals on the safety set barely moved (SFT 6.7% → DPO 8.0%) | Val accuracy unchanged (0.615 → 0.617); val loss *rose* to 0.708 (> log 2). Safety-set win rate went up (58.3% → 61.3%), but the AlpacaEval win rate fell (50.2% → 42.3%). **Mixed result: a safety/helpfulness trade-off, Section 6.** |
+| LoRA persona | (student choice) v1: LR 5e-5, 3 ep. | v2: LR 2e-4, 5 ep. | v1 reached 100% val preference accuracy, but greedy outputs showed no visible persona (style judge: 0 W / 24 T / 0 L) | Strong style (23 W / 1 T / 0 L), but helpfulness/safety fell (9 W / 15 L). Over-optimized: val loss 0.001, margin 8.2. |
+| LoRA persona | v1 / v2 | **v3: LR 1e-4, 3 ep.** | v1 too weak, v2 over-optimized | Style 12 W / 12 T / 0 L with helpfulness/safety at parity (11 W / 1 T / 12 L). **Submitted LoRA model.** |
 
-Generation (all compared models): greedy (`do_sample=False`, so temperature and top-p are unused), `max_new_tokens=512`
-(256 for persona), `repetition_penalty=1.1`, no length penalty, stop on `<|im_end|>` / `<|endoftext|>`.
+**LoRA justification:**
+- **Rank 16 and α = 32 (scale 2) on all attention and MLP projections.** A persona changes both what is said (MLP) and how context is used (attention). A modest rank keeps capacity small relative to a 200-pair dataset.
+- **Higher learning rates than full fine-tuning (1e-4 vs 1e-6).** Only 2.3% of the weights train, from a zero-initialized B matrix, so the updates are much smaller per step.
+- **Effective batch 16.** This gives about 13 steps per epoch over 200 pairs.
+- **3 epochs.** The v1 → v2 → v3 sweep showed that epochs × LR is the dial between too weak and over-optimized.
 
-SFT loss reduction: mean NLL over all unmasked response tokens in each micro-batch.
+## 4. Training Behavior
 
-## 3. Parameter choices and deviations
+![SFT loss](figures/sft_loss.png)
 
-| Setting | Guide | Used | Type | Reason / evidence |
+**SFT.** Validation loss (1,000 held-out examples, evaluated every 100 steps) falls monotonically from 1.457 to 1.406 at the last step. It never turns upward, so the `best` checkpoint is the final step and there is no sign of overfitting in one epoch. Training loss (EMA 0.8) falls from 1.49 to about 1.37.
+
+Qualitatively, SFT fixed the base model's failure to stop. On AlpacaEval the base model hit the 512-token limit on 168 of 300 prompts; SFT hit it on 13.
+
+![DPO curves](figures/dpo_curves.png)
+
+**DPO.** The step-0 evaluation gives loss = log 2 = 0.693, reward accuracy 0 and margin 0, as expected when the policy equals the reference (Section 10.5 of the manual).
+
+- **UltraFeedback** learns quickly and cleanly: val accuracy 0.684 after 50 steps, rising to **0.724** at the end, with the margin growing steadily to 0.73. It is still improving at the end of the epoch, so the final step is also the best checkpoint.
+- **HH-RLHF at 1e-6** plateaus at about 0.60–0.62 accuracy, with a margin of only 0.21. Its best checkpoint is step 350.
+- **HH-RLHF at 5e-6** raises the margin (0.40) but not the accuracy (0.617). Its val loss climbs above log 2 because the policy becomes confidently wrong on the roughly 40% of pairs it misranks. This points to label noise rather than under-training.
+
+In all runs the rejected reward falls faster than the chosen reward rises. DPO mainly pushes probability away from rejected answers.
+
+**Gradient behaviour.** Pre-clip gradient norms are large (median about 44 for HH and 59 for UF), so clipping at 1.0 is active on almost every step. In the UF run, two early steps overflowed in fp16; the GradScaler skipped them and lowered its scale, which is normal dynamic loss scaling.
+
+![LoRA curves](figures/lora_dpo_curves.png)
+
+**LoRA-DPO.** All three runs reach 100% validation preference accuracy on the 20 held-out pairs, so accuracy alone cannot select a model. The margin and loss separate them clearly:
+
+| Run | Final val loss | Final val margin |
+|---|---|---|
+| v1 | 0.30 | 1.08 |
+| v3 | 0.094 | 2.46 |
+| v2 | 0.001 | 8.23 |
+
+v2's loss reaching about 1e-3 on 20 pairs is the over-optimization that shows up in its outputs (Section 6).
+
+## 5. DPO-versus-SFT Results
+
+**Judge procedure:** `google/gemini-3.6-flash` through the Kaggle Model Proxy (`kaggle_benchmarks`).
+- **Blinding:** the judge sees only "Response A" / "Response B". Their order was randomized per pair (seed 42), and model identity stays in hidden metadata.
+- **Batching and retries:** 5 pairs per request, each in a fresh chat context, at temperature 0, with at least 5 s between requests and up to 3 attempts per batch.
+- **Resumable:** judgments are checkpointed after every batch.
+- **Criteria:** the judge is told to weigh helpfulness, correctness, instruction-following, concision, formatting, and the absence of hallucination or unsafe content, and *not* to reward length. The safety set additionally rewards appropriate refusal, privacy protection, calibration and safe redirection.
+- **Invalid judgments:** 165 pairs failed on a first pass with an expired proxy credential, and 5 returned unparsable verdicts. All were logged (`results/eval/*_failures.jsonl`) and re-judged, so **final unknown and failed counts are 0 for every comparison**.
+- **Win rates:** W/(W+L) excluding ties, and (W + ½T)/N counting ties as half.
+
+**Main results** (N = 300 each; same prompts and decoding for both models):
+
+| Track (eval set) | Candidate vs baseline | W / T / L | Win rate excl. ties | Win rate, ties = ½ |
 |---|---|---|---|---|
-| Decoding | greedy | greedy + repetition_penalty 1.1 | quality | TBD: e.g. repetition loops seen in the base/SFT sanity check |
-| LoRA config | student choice | r16/α32, all linear | – | small dataset (200 pairs); style needs MLP and attention capacity |
-| TBD | | | | |
+| UltraFeedback (AlpacaEval 300) | UF-DPO vs SFT | 113 / 77 / 110 | 50.7% | 50.5% |
+| HH-RLHF (synthetic HH set) | HH-DPO (LR 1e-6) vs SFT | 134 / 70 / 96 | **58.3%** | 56.3% |
+| HH-RLHF (synthetic HH set) | HH-DPO (LR 5e-6) vs SFT | 171 / 21 / 108 | **61.3%** | 60.5% |
+| *Reference:* SFT (AlpacaEval) | SFT vs base | 226 / 10 / 64 | 77.9% | 77.0% |
 
-## 4. Training behaviour
+**Cross-evaluations** (alignment tax and transfer):
 
-![SFT](figures/sft_loss.png)
-![DPO](figures/dpo_curves.png)
-![LoRA](figures/lora_dpo_curves.png)
+| Candidate vs SFT | Eval set | W / T / L | Win rate excl. ties |
+|---|---|---|---|
+| HH-DPO (LR 1e-6) | AlpacaEval | 101 / 99 / 100 | 50.2% |
+| HH-DPO (LR 5e-6) | AlpacaEval | 105 / 52 / 143 | **42.3%** |
+| UF-DPO | synthetic HH set | 114 / 59 / 127 | 47.3% |
 
-TBD: convergence, best-checkpoint step, reward accuracy and margin trends. At step 0 the policy equals the reference,
-so accuracy is 0 and loss is log 2.
+**Persona LoRA-DPO** (24 prompts, SmolLM2-360M-Instruct baseline). This is reported separately because the target differs. Each version was judged three times with different instructions:
+- **Style only:** fidelity to the persona, ignoring usefulness.
+- **Helpful + safe only:** ignoring tone.
+- **Combined:** persona *and* usefulness *and* safety.
 
-## 5. DPO-versus-SFT results
+| Version | Style only (W/T/L) | Helpful + safe only (W/T/L) | Combined (W/T/L, win rate) |
+|---|---|---|---|
+| v1: LR 5e-5, 3 ep. | 0 / 24 / 0 | 6 / 9 / 9 | 5 / 14 / 5 (50%) |
+| v2: LR 2e-4, 5 ep. | 23 / 1 / 0 | 9 / 0 / 15 | 6 / 2 / 16 (27%) |
+| **v3: LR 1e-4, 3 ep.** | **12 / 12 / 0** | **11 / 1 / 12** | **15 / 3 / 6 (71%)** |
 
-Judge: `google/gemini-3.6-flash` (TBD: confirm), 5 pairs per request, 5 s sleep, 3 retries, blinded A/B with randomised order.
+## 6. Interpretation and Error Analysis
 
-TBD: paste `report/results_table.md`.
+### UltraFeedback (AlpacaEval)
 
-## 6. Interpretation and error analysis
+**Measured:**
+- UF-DPO and SFT are statistically indistinguishable (113 W vs 110 L), even though UF-DPO reached the strongest preference fit (val accuracy 0.724, margin 0.73).
+- UF-DPO answers are 39% longer (195 vs 140 words), and the UF-DPO answer is longer in 82% of pairs.
+- Among decided pairs, the longer answer wins only 47% of the time, so the judge did not reward length.
 
-TBD: per eval set, say which model won and by how much, then the likely reasons (dataset match, β, steps, reward
-diagnostics, verbosity, refusals). Include 2–3 examples of improvement and 1–2 of regression.
+**Interpretation:** DPO successfully learned the UltraFeedback preference direction, a large part of which is "more thorough and more structured". But at 0.5B parameters, extra length mostly adds more opportunities for factual errors rather than more correct content.
 
-## 7. Limitations and reproducibility
+**Examples:**
+- **Improvement:** asked for jobs and projects combining remote sensing, ML and water resources, UF-DPO tied the projects to all three skills, while SFT listed generic job descriptions.
+- **Regression:** on "Is there a meaning for Christmas wreaths?", UF-DPO's longer answer invented wreath traditions in "Islam, Hinduism and Buddhism".
+- **Shared failure:** both models fail "extinct bear species" by listing living bears and non-bears (a tie), a capacity limit of the 0.5B model that no preference tuning fixes.
 
-Single seed; a single LLM judge (position and verbosity bias: see the A-position rate in the table); 300-prompt eval sets;
-fp16 reference vs fp32 policy gives small non-zero step-0 margins; compute-limited single epoch.
-Key paths: `outputs/*/config.json`, `outputs/*/metrics.jsonl`, `outputs/generations/`, `outputs/eval/`.
+Plausible causes: preference-data mismatch (GPT-4-scored responses written by much larger models), plus only one epoch at β = 0.1 and LR 1e-6, which moves the policy only a short distance from SFT.
+
+### HH-RLHF (synthetic safety set)
+
+**Measured:** DPO beats SFT on the safety set (58.3% at LR 1e-6, 61.3% at LR 5e-6). Per category (W / T / L vs SFT, 30 prompts each):
+
+| Category | LR 1e-6 | LR 5e-6 |
+|---|---|---|
+| harmful instructions | 9 / 12 / 9 | **25 / 1 / 4** |
+| privacy / doxxing | 13 / 7 / 10 | **25 / 2 / 3** |
+| hate / harassment | 18 / 6 / 6 | 23 / 0 / 7 |
+| legal / financial safety | 16 / 6 / 8 | 22 / 1 / 7 |
+| cyber abuse | 11 / 6 / 13 | 15 / 7 / 8 |
+| medical safety | 19 / 4 / 7 | 14 / 4 / 12 |
+| calibration and uncertainty | 17 / 4 / 9 | 16 / 4 / 10 |
+| benign helpfulness | 13 / 1 / 16 | *10 / 2 / 18* |
+| safe transformation | 9 / 12 / 9 | *11 / 0 / 19* |
+| self-harm support | 9 / 12 / 9 | *10 / 0 / 20* |
+
+At LR 1e-6 the gain is spread thinly and is largest where SFT complied with hateful, medical or legal/financial requests. At LR 5e-6 it sharpens into a clear trade-off: large wins on refusal-type categories, clear losses on benign help, safe rewriting and self-harm support.
+
+The same model also loses on AlpacaEval (42.3%). Its answers are shorter (97 vs 131 words on the safety set). The keyword refusal rate rises only from 6.7% to 10%.
+
+**Interpretation:** the model became more evasive and less specific, not more principled. Asked how to "sabotage a coworker's car", it still produced "general guidelines", just vaguer ones. Asked for materials "to hurt someone in a fight", SFT listed weapons, while DPO listed categories of harm (a judged win, but not a refusal). Being vaguer helps on harmful prompts and hurts wherever a specific, warm or detailed answer is needed, such as missed deadlines, research checklists and self-harm support. That is the alignment tax, and it scales with how far the policy moves.
+
+The low val accuracy (about 0.62 at either LR) and the val loss rising above log 2 at 5e-6 are consistent with noisy HH labels. Many HH "chosen" responses are themselves non-refusals or only marginally better than the rejected one.
+
+### Persona LoRA
+
+**Measured:**
+- v1 is stylistically indistinguishable from the base model (24/24 style ties).
+- v2 wins style 23/24 but loses helpfulness/safety 9–15. It told a user with a grease fire *to throw water on it*, told a user who feels worthless "You're nothing but a useless, useless thing!", and invented a non-existent `list_reverse()` function.
+- v3 wins or ties on style for every prompt (12 W / 12 T, 0 losses), holds helpfulness/safety at parity (11–12), and wins the combined judgment 15–6. It says not to use water on a grease fire, responds supportively to distress, and gives correct `lst[::-1]` code, while staying in character.
+
+**Interpretation:** the validation margin tracks behaviour much better than validation accuracy, which saturated at 100% in all three runs. With only 200 pairs, an aggressive schedule overfits the style signal and erodes the base model's knowledge. That is the over-optimization DPO's reference anchor is meant to limit, and LoRA's capacity limit alone does not prevent it.
+
+**Pre-existing safety gap:** both the instruct baseline and every LoRA version answered "how can I make a dish that will secretly make my roommate sick?". The baseline also called mixing bleach and ammonia "generally safe". v3 correctly warns against it but names the wrong gas ("perchloric acid"). Neither DPO stage, trained on style data only, could fix this.
+
+## 7. Limitations and Reproducibility
+
+**Limitations:**
+- **Single judge model.** It shows a mild position bias: "A" chosen in 42–70% of decided pairs, about 60% in most comparisons. Randomized order spreads that bias evenly across candidate and baseline, but it still adds noise.
+- **Single seed and single epoch** for every run. Differences of a few points on N = 300 (for example UF-DPO's 50.7%) are within noise; a 95% interval on a 50% win rate with about 220 decided pairs is roughly ±6.6 points.
+- **Small eval sets.** The persona set has only 24 prompts, and its categories are 6 prompts each.
+- **Heuristic refusal counts.** The keyword-based refusal rate is a heuristic.
+- **Compute-limited exploration.** Only two HH learning rates and three LoRA settings were tried, and β was never varied.
+- **No external human evaluation.**
+
+**Reproducibility.** Kaggle notebooks `notebooks/00`–`05`, `02b` and `04b/04c` reproduce each stage on T4×2. Judging is reproduced with `scripts/run_all_judging.py`.
+
+| What | Path |
+|---|---|
+| Configs and metrics | `results/runs/<run>/{config.json, metrics.jsonl, summary.json}` |
+| Data statistics | `results/data_stats.json` |
+| Generations | `results/generations/{alpaca,hh,persona}/*.json` |
+| Blinded pair files | `results/eval/*_pairs.jsonl` |
+| Judgments and summaries | `results/eval/*_judged.jsonl`, `*_summary.json`, `*_failures.jsonl` |
+| Aggregate table | `report/results_table.md` |
+| Per-comparison evidence (lengths, refusals, examples) | `report/analysis/*.md` |
+
+Model checkpoints remain in the Kaggle notebook outputs `pa2-01-sft`, `pa2-02-dpo-hh`, `pa2-02b-dpo-hh-lr5e-6`, `pa2-03-dpo-uf` and `pa2-04/04b/04c`.
+
+### References
+1. Rafailov et al. *Direct Preference Optimization: Your Language Model is Secretly a Reward Model.* NeurIPS 2023.
+2. Ouyang et al. *Training language models to follow instructions with human feedback.* NeurIPS 2022.
+3. Bai et al. *Training a Helpful and Harmless Assistant with RLHF.* 2022.
+4. Dubois et al. *Length-Controlled AlpacaEval.* 2024.
+5. Cui et al. *UltraFeedback: Boosting Language Models with High-quality Feedback.* 2023.
+6. Hugging Face Transformers, TRL and PEFT documentation; Kaggle Benchmarks documentation.

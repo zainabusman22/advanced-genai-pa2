@@ -18,6 +18,8 @@ import matplotlib  # noqa: E402
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
+
+plt.rcParams.update({"font.size": 12, "axes.titlesize": 13, "legend.fontsize": 9})
 import numpy as np  # noqa: E402
 
 from alignment.utils import read_jsonl  # noqa: E402
@@ -89,7 +91,7 @@ def plot_dpo(named_paths, out_dir, smooth):
             ax.grid(alpha=0.3)
     axes[0].axhline(np.log(2), color="gray", ls="--", lw=1, label="log 2")
     for ax in axes:
-        ax.legend(fontsize=7)
+        ax.legend(fontsize=8.5)
     fig.suptitle("From-scratch DPO from the SFT best checkpoint (beta = 0.1)")
     fig.tight_layout()
     fig.savefig(out_dir / "dpo_curves.png", dpi=160)
@@ -119,7 +121,7 @@ def plot_lora(named_paths, out_dir):
         ax.axhline(np.log(2), color="gray", ls="--", lw=1) if ax is not axes[2] else None
         ax.set_xlabel("optimizer step (effective batch 16)")
         ax.grid(alpha=0.3)
-        ax.legend(fontsize=8)
+        ax.legend(fontsize=9.5)
     fig.suptitle("TRL DPOTrainer + LoRA persona tuning (SmolLM2-360M-Instruct, 200 train / 20 val pairs, beta = 0.1)")
     fig.tight_layout()
     fig.savefig(out_dir / "lora_dpo_curves.png", dpi=160)
