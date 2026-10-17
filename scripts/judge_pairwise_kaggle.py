@@ -137,11 +137,17 @@ def make_kaggle_judge(model_name):
             available = "unknown"
         raise SystemExit(f"judge model {model_name!r} not found in kbench.llms; available: {available}")
 
+    counter = {"n": 0}
+
     def call(prompt):
-        try:
-            response = llm.prompt(prompt, temperature=0.0)
-        except TypeError:
-            response = llm.prompt(prompt)
+        # Each request gets a fresh, isolated chat; otherwise kbench keeps appending
+        # earlier prompts/answers to the context of every later call.
+        counter["n"] += 1
+        with kbench.chats.new(f"judge-request-{counter['n']}"):
+            try:
+                response = llm.prompt(prompt, temperature=0.0)
+            except TypeError:
+                response = llm.prompt(prompt)
         if isinstance(response, str):
             return response
         for attr in ("text", "content", "output"):

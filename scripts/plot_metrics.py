@@ -96,27 +96,31 @@ def plot_dpo(named_paths, out_dir, smooth):
     plt.close(fig)
 
 
-def plot_lora(path, out_dir):
-    rows = read_jsonl(path)
-    fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-    tr = [r for r in rows if "loss" in r and "eval_loss" not in r and "step" in r]
-    ev = [r for r in rows if "eval_loss" in r]
-    axes[0].plot([r["step"] for r in tr], [r["loss"] for r in tr], color=COLORS[0], label="train")
-    axes[0].plot([r["step"] for r in ev], [r["eval_loss"] for r in ev], "o-", color=COLORS[1], label="val")
-    axes[0].set_title("LoRA-DPO loss")
-    acc_key = next((k for k in ("eval_rewards/accuracies",) if ev and k in ev[0]), None)
-    if acc_key:
-        axes[1].plot([r["step"] for r in ev], [r[acc_key] for r in ev], "o-", color=COLORS[1], label="val reward acc")
-    mkey = "eval_rewards/margins"
-    if ev and mkey in ev[0]:
-        ax2 = axes[1].twinx()
-        ax2.plot([r["step"] for r in ev], [r[mkey] for r in ev], "s--", color=COLORS[2], label="val margin")
-        ax2.set_ylabel("reward margin")
-    axes[1].set_title("LoRA-DPO validation preference diagnostics")
+def plot_lora(named_paths, out_dir):
+    """Overlay one or more TRL LoRA-DPO runs: train loss, val loss (log scale), val reward margin."""
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+    for i, (name, path) in enumerate(named_paths):
+        rows = read_jsonl(path)
+        c = COLORS[i % len(COLORS)]
+        tr = [r for r in rows if "loss" in r and "eval_loss" not in r and "step" in r]
+        ev = [r for r in rows if "eval_loss" in r]
+        axes[0].plot([r["step"] for r in tr], [r["loss"] for r in tr], color=c, label=name)
+        axes[1].plot([r["step"] for r in ev], [r["eval_loss"] for r in ev], "o-", color=c, label=name)
+        if ev and "eval_rewards/margins" in ev[0]:
+            acc = ev[-1].get("eval_rewards/accuracies")
+            axes[2].plot([r["step"] for r in ev], [r["eval_rewards/margins"] for r in ev], "o-", color=c,
+                         label=f"{name} (final val acc {acc:.2f})" if acc is not None else name)
+    axes[0].set_title("LoRA-DPO train loss")
+    axes[1].set_title("LoRA-DPO validation loss (log scale)")
+    axes[1].set_yscale("log")
+    axes[2].set_title("LoRA-DPO validation reward margin")
     for ax in axes:
-        ax.set_xlabel("optimizer step")
+        ax.axhline(np.log(2), color="gray", ls="--", lw=1) if ax is not axes[2] else None
+        ax.set_xlabel("optimizer step (effective batch 16)")
         ax.grid(alpha=0.3)
-        ax.legend()
+        ax.legend(fontsize=8)
+    fig.suptitle("TRL DPOTrainer + LoRA persona tuning (SmolLM2-360M-Instruct, 200 train / 20 val pairs, beta = 0.1)")
     fig.tight_layout()
     fig.savefig(out_dir / "lora_dpo_curves.png", dpi=160)
     plt.close(fig)
@@ -126,7 +130,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--sft", default=None)
     p.add_argument("--dpo", nargs="*", default=[], help="NAME=path/to/metrics.jsonl")
-    p.add_argument("--lora", default=None)
+    p.add_argument("--lora", nargs="*", default=[], help="NAME=path/to/metrics.jsonl (or a bare path)")
     p.add_argument("--out_dir", default=str(ROOT / "report/figures"))
     p.add_argument("--smooth", type=float, default=0.8)
     args = p.parse_args()
@@ -137,7 +141,7 @@ def main():
     if args.dpo:
         plot_dpo([item.split("=", 1) for item in args.dpo], out, args.smooth)
     if args.lora:
-        plot_lora(args.lora, out)
+        plot_lora([item.split("=", 1) if "=" in item else ("LoRA-DPO", item) for item in args.lora], out)
     print(f"figures written to {out}")
 
 
