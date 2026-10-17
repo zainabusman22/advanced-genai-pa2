@@ -40,22 +40,24 @@ Tokenization occurs separately for the prompt and response spans without adding 
 
 ## 2. Experimental Configuration
 
-All Qwen runs use full fine-tuning with fp32 master weights, fp16 autocast and a dynamic GradScaler on a Kaggle T4, plus AdamW (β = 0.9, 0.95), gradient clipping at 1.0, seed 42, max length 512 (prompt ≤ 256) and 1 epoch.
+All Qwen fine-tuning runs use full-parameter optimization with FP32 master weights, FP16 automatic mixed precision (`torch.autocast(device_type="cuda", dtype=torch.float16)`) and a dynamic `GradScaler`, on Kaggle T4×2 machines (15 GiB per GPU). SFT trains on a single T4; during SFT the second GPU ran base-model generation in parallel. They use AdamW (β₁ = 0.9, β₂ = 0.95, ε = 10⁻⁸), gradient-norm clipping at 1.0, global random seed 42, a context length of 512 tokens (maximum prompt length ≤ 256), and a 1-epoch budget.
 
+**Dual-GPU Memory Topology and Initialization.** For the from-scratch DPO runs, the trainable policy resides on `cuda:0`. The frozen reference is placed on `cuda:1` as an exact copy of the best SFT checkpoint (`pa2-01-sft/outputs/sft/best`). To avoid small cross-precision discrepancies between policy and reference, the reference keeps FP32 weights and runs under `torch.no_grad()` with the same autocast settings as the policy. This gives exact parity at step 0 (Δθ = Δref, so the implicit rewards are r_w = r_l = 0 and reward accuracy is 0). For the persona track, LoRA DPO runs on a single GPU with TRL's `DPOTrainer` in FP16 mixed precision (max length 512, max prompt length 256), using SmolLM2's native chat template. The frozen reference policy is the base checkpoint with the LoRA adapter disabled.
 
-**DPO setup:** the policy sits on `cuda:0`. The frozen reference is a second copy of the SFT `best` checkpoint (`pa2-01-sft/outputs/sft/best`) on `cuda:1`, run in fp32 under the same autocast with `torch.no_grad`, so at step 0 the policy and reference agree exactly.
-
-| Run | Trainable params | LR / schedule | WD | Batch × accum = eff. | Steps | β | Init → reference | Selected ckpt |
+| Track / model | Trainable parameters | Peak LR & schedule | WD | Per-device × accum = global batch | Steps (epochs) | β | Init → reference | Checkpoint selection |
 |---|---|---|---|---|---|---|---|---|
-| SFT | full (494M) | 2e-5, 3% warmup (28 steps) + cosine | 0.1 | 2 × 16 = 32 | 938 | – | Qwen2.5-0.5B | min val loss (step 938) |
-| HH-RLHF DPO | full | 1e-6 constant | 0 | 1 × 32 = 32 | 469 | 0.1 | SFT best → frozen SFT best | max val reward acc. (step 350) |
-| HH-RLHF DPO, LR 5e-6 *(deviation)* | full | 5e-6 constant | 0 | 1 × 32 = 32 | 469 | 0.1 | same | max val reward acc. (step 400) |
-| UltraFeedback DPO | full | 1e-6 constant | 0 | 1 × 32 = 32 | 469 | 0.1 | same | max val reward acc. (step 469) |
-| LoRA-DPO v3 *(submitted)* | LoRA r = 16, α = 32, dropout 0.05; q,k,v,o,gate,up,down (8.68M = 2.3%) | 1e-4, 10% warmup + cosine | 0 | 4 × 4 = 16 | 39 (3 ep.) | 0.1 | SmolLM2-Instruct → same with adapter disabled | final |
+| SFT | Full (494M) | 2×10⁻⁵; 3% linear warmup (28 steps) + cosine decay | 0.1 | 2 × 16 = 32 | 938 (1.0) | – | Qwen2.5-0.5B → n/a | Min validation loss (step 938) |
+| HH-RLHF DPO | Full (494M) | 1×10⁻⁶ constant | 0.0 | 1 × 32 = 32 | 469 (1.0) | 0.1 | SFT best → frozen SFT best | Max val reward accuracy (step 350) |
+| HH-RLHF DPO (deviation) | Full (494M) | 5×10⁻⁶ constant | 0.0 | 1 × 32 = 32 | 469 (1.0) | 0.1 | SFT best → frozen SFT best | Max val reward accuracy (step 400) |
+| UltraFeedback DPO | Full (494M) | 1×10⁻⁶ constant | 0.0 | 1 × 32 = 32 | 469 (1.0) | 0.1 | SFT best → frozen SFT best | Max val reward accuracy (step 469) |
+| LoRA-DPO v3 (submitted) | LoRA (r = 16, α = 32, dropout = 0.05); q, k, v, o, gate, up, down (8.68M / 2.3%) | 1×10⁻⁴; 10% warmup + cosine decay; AdamW (TRL/Transformers default), clip 1.0 | 0.0 | 4 × 4 = 16 | 39 (3.0) | 0.1 | SmolLM2-360M-Instruct → same, adapter disabled | Final step (step 39) |
 
-LoRA-DPO was trained with TRL 0.23.1 `DPOTrainer` on one GPU in fp16 AMP, with max length 512 and max prompt length 256.
+**Deterministic Evaluation Generation Settings.** To isolate the effect of policy optimization from sampling variance, every comparison uses identical decoding settings for the baseline and the fine-tuned checkpoint:
 
-**Generation** (identical for every model in a comparison): greedy decoding (`do_sample=False`, so temperature and top-p are unused), `num_beams=1`, `repetition_penalty=1.1`, no length penalty and no n-gram constraint. Qwen models use max 512 new tokens with the ChatML template above. SmolLM2 models use max 256 new tokens with their tokenizer chat template. Generation stops at `<|im_end|>` or `<|endoftext|>`.
+- *Decoding strategy:* greedy search (`do_sample=False`, `num_beams=1`); temperature and top-p are therefore unused.
+- *Penalty controls:* repetition penalty = 1.1; no-repeat n-gram = 0; length penalty left at its default (it only affects beam search, so it has no effect here).
+- *Generation horizon:* maximum 512 new tokens for Qwen variants (ChatML template); maximum 256 new tokens for SmolLM2 variants (native chat template).
+- *Stopping criteria:* generation stops at the first `<|im_end|>` or `<|endoftext|>`.
 
 ## 3. Parameter Choices and Deviations
 
