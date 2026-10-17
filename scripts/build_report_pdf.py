@@ -28,6 +28,8 @@ li { margin: 1px 0; }
 table { border-collapse: collapse; width: auto; max-width: 100%; margin: 4px 0 7px 0; font-size: 8.3pt; page-break-inside: avoid; }
 th, td { border: 1px solid #c8c8c8; padding: 2px 4px; vertical-align: top; text-align: left; }
 th { background: #eef2f7; }
+pre { background: #f6f6f6; border: 1px solid #ddd; padding: 4px 6px; white-space: pre-wrap; word-break: break-all; margin: 3px 0 6px 0; }
+pre code { background: none; padding: 0; }
 code { font-family: Consolas, monospace; font-size: 8.3pt; background: #f4f4f4; padding: 0 2px; }
 img { width: 100%; margin: 2px 0; page-break-inside: avoid; }
 img[alt="SFT loss"] { width: 58%; display: block; margin: 2px auto; }
@@ -55,7 +57,7 @@ def main():
         out.append(line)
         prev = line
     md_text = "\n".join(out)
-    body = markdown.markdown(md_text, extensions=["tables", "sane_lists"])
+    body = markdown.markdown(md_text, extensions=["tables", "sane_lists", "fenced_code"])
     html = f'<!doctype html><html><head><meta charset="utf-8"><title>PA2 Report</title><style>{CSS}</style></head><body>{body}</body></html>'
     html_path = REPORT / "report.html"
     html_path.write_text(html, encoding="utf-8")

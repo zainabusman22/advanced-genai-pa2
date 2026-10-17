@@ -4,33 +4,42 @@
 
 ## 1. Repository, Models, and Data
 
-**Repository:** <https://github.com/zainabusman22/advanced-genai-pa2> (public). The core math (batching, response masking, log-probs, SFT and DPO losses) is in `alignment/core.py` and is exposed through `submission_adapter.py`. The public smoke tests pass, as do 28 additional tests (edge cases and cross-checks against Hugging Face's built-in causal-LM loss).
+**Code Repository and Verification.** The public repository is hosted at <https://github.com/zainabusman22/advanced-genai-pa2>. All foundational batch construction, response-only label masking, sequence log-probability aggregation, and SFT/DPO loss functions are implemented from scratch in `alignment/core.py` and exposed via the standardized interface in `submission_adapter.py`. The implementation passes all required public adapter smoke tests (`tests/test_public_adapter_smoke.py`) alongside 28 custom unit tests validating padding/truncation edge cases, gradient flow, and numerical equivalence against Hugging Face's built-in causal-LM cross-entropy loss.
 
-**Models.** SFT and both from-scratch DPO runs use `Qwen/Qwen2.5-0.5B` (494M parameters). The LoRA persona task uses `HuggingFaceTB/SmolLM2-360M-Instruct`.
+**Model Architectures.**
 
-**Data.** Every subset was drawn by shuffling the source split with seed 42 and keeping the first N rows that pass the filters. Statistics are in `results/data_stats.json`.
+- *Primary post-training pipeline:* `Qwen/Qwen2.5-0.5B` (494M parameters) serves as the base architecture across Supervised Fine-Tuning (SFT) and both from-scratch Direct Preference Optimization (DPO) tracks.
+- *Persona fine-tuning track:* `HuggingFaceTB/SmolLM2-360M-Instruct` (360M parameters) is used for parameter-efficient LoRA DPO tuning via TRL.
 
-| Track | Source (train / val split) | Train | Val | Filters (kept / scanned, train) |
+**Data Processing and Curation.** All datasets were sampled deterministically by shuffling source splits with random seed 42 and extracting the first *N* instances that strictly satisfied the filtering criteria. Filtering metrics are archived in `results/data_stats.json`.
+
+| Track | Source split | Train | Val | Curation & filtering criteria (kept / scanned) |
 |---|---|---|---|---|
-| SFT | `HuggingFaceH4/ultrachat_200k` (`train_sft` / `test_sft`) | 30,000 | 1,000 | first user→assistant turn; templated prompt ≤ 256 tokens (30,000 / 37,555) |
-| HH-RLHF DPO | `Anthropic/hh-rlhf` (`train` / `test`) | 15,000 | 1,000 | single-turn only; identical prompt in chosen/rejected; chosen ≠ rejected; prompt ≤ 256 tokens (15,000 / 49,027) |
-| UltraFeedback DPO | `HuggingFaceH4/ultrafeedback_binarized` (`train_prefs` / `test_prefs`) | 15,000 | 1,000 | single-turn; no score ties; chosen ≠ rejected; prompt ≤ 256 tokens (15,000 / 21,354) |
-| LoRA persona DPO | `data/persona_lora/ramsay_style_preferences.json` | 200 | 20 | random split, seed 42 (`results/runs/lora_v1/split.json`) |
+| SFT | `HuggingFaceH4/ultrachat_200k` (`train_sft` / `test_sft`) | 30,000 | 1,000 | First user → assistant exchange; formatted prompt ≤ 256 tokens (30,000 / 37,555). Sequences truncated to 512 tokens during training. |
+| HH-RLHF DPO | `Anthropic/hh-rlhf` (`train` / `test`) | 15,000 | 1,000 | Single-turn conversations only; identical prompt prefixes across pairs; chosen ≠ rejected; prompt length ≤ 256 tokens (15,000 / 49,027). |
+| UltraFeedback DPO | `HuggingFaceH4/ultrafeedback_binarized` (`train_prefs` / `test_prefs`) | 15,000 | 1,000 | Single-turn; pairs with tied scores removed; chosen ≠ rejected; prompt length ≤ 256 tokens (15,000 / 21,354). |
+| LoRA persona DPO | `data/persona_lora/ramsay_style_preferences.json` | 200 | 20 | Deterministic 200 / 20 split under seed 42 (`results/runs/lora_v1/split.json`). |
 
-Most HH-RLHF conversations are multi-turn, so only 31% of scanned rows survive the single-turn filter.
+**Dataset Ingestion Note.** The filters discarded 69% of the scanned `Anthropic/hh-rlhf` records, predominantly multi-turn conversations removed by the single-turn filter. While this strictly avoids multi-turn formatting artifacts without complicating the prompt template, it skews the training distribution toward standalone queries compared to the broader conversational contexts found in the raw corpus.
 
-**Fixed evaluation sets:**
-- `eval_sets/alpaca_eval_300_seed42.json`: 300 prompts from `tatsu-lab/alpaca_eval`, `random.Random(42).sample`.
-- `eval_sets/hh_rlhf_eval_300_seed42.json`: the provided synthetic helpful/harmless set, 10 categories × 30.
-- `eval_sets/persona_style_eval_24.json`: 24 prompts, 6 each of cooking, coding, general help and safety-sensitive.
+**Fixed Evaluation Sets.**
 
-**Prompt format.** SFT, DPO and all Qwen generation use the same ChatML template: system "You are a helpful assistant.", then `<|im_start|>user\n{instruction}<|im_end|>\n<|im_start|>assistant\n`. The response is followed by `<|im_end|>`, which is set as the tokenizer's EOS. Prompt and response are tokenized separately (no special tokens), EOS is appended before right-truncation to 512 tokens, and prompt and padding positions get label −100. SmolLM2 uses its own chat template, applied by TRL.
+- *General instruction quality:* `eval_sets/alpaca_eval_300_seed42.json`, consisting of 300 instructions sampled from `tatsu-lab/alpaca_eval` using `random.Random(42).sample`.
+- *Safety & harmlessness:* `eval_sets/hh_rlhf_eval_300_seed42.json`, containing 300 synthetic queries spanning 10 balanced categories (30 queries each).
+- *Persona & style alignment:* `eval_sets/persona_style_eval_24.json`, composed of 24 prompts balanced evenly across culinary domains, programming tasks, general utility queries, and safety-sensitive edge cases.
+
+**Chat Templates and Tokenization Mechanics.** For Qwen2.5-0.5B, uniform tokenization conventions are maintained across SFT, both from-scratch DPO runs, and inference to prevent template mismatch. We apply the ChatML format:
+
+```text
+<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n{instruction}<|im_end|>\n<|im_start|>assistant\n{response}<|im_end|>
+```
+
+Tokenization occurs separately for the prompt and response spans without adding duplicate special tokens. The end-of-sequence token `<|im_end|>` is explicitly mapped to EOS and appended to the target response prior to right-side sequence truncation at 512 tokens. Prompt tokens and right-padded positions are mapped to label −100, ensuring log probabilities and training gradients are calculated strictly over assistant response spans. SFT loss reduction consistently adopts the mean negative log-likelihood over all unmasked response tokens in the batch. For SmolLM2-360M-Instruct, its native chat template is maintained through TRL's preprocessing pipeline.
 
 ## 2. Experimental Configuration
 
 All Qwen runs use full fine-tuning with fp32 master weights, fp16 autocast and a dynamic GradScaler on a Kaggle T4, plus AdamW (β = 0.9, 0.95), gradient clipping at 1.0, seed 42, max length 512 (prompt ≤ 256) and 1 epoch.
 
-**SFT loss reduction:** mean NLL over all unmasked response tokens in each micro-batch.
 
 **DPO setup:** the policy sits on `cuda:0`. The frozen reference is a second copy of the SFT `best` checkpoint (`pa2-01-sft/outputs/sft/best`) on `cuda:1`, run in fp32 under the same autocast with `torch.no_grad`, so at step 0 the policy and reference agree exactly.
 
