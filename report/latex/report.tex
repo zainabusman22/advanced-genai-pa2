@@ -37,7 +37,7 @@
 
 \para{Code Repository:} \url{https://github.com/zainabusman22/advanced-genai-pa2}. The SFT and DPO core (batching, response masking, log-probabilities and losses) is implemented from scratch in \nolinkurl{alignment/core.py} and wrapped by \nolinkurl{submission_adapter.py}.
 
-\para{Models:} SFT and both from-scratch DPO runs fine-tune \nolinkurl{Qwen/Qwen2.5-0.5B} (494M parameters). The persona run trains LoRA adapters on \nolinkurl{HuggingFaceTB/SmolLM2-360M-Instruct} (360M parameters) with TRL's \code{DPOTrainer} and PEFT \cite{hfdocs}.
+\para{Models:} SFT and both from-scratch DPO runs fine-tune \nolinkurl{Qwen/Qwen2.5-0.5B}~\cite{qwen2024} (494M parameters). The persona run trains LoRA~\cite{hu2022} adapters on \nolinkurl{HuggingFaceTB/SmolLM2-360M-Instruct}~\cite{allal2025} (360M parameters) with TRL's \code{DPOTrainer} and PEFT~\cite{hfdocs}.
 
 \para{Data:} Each training subset was drawn by shuffling the source split with seed 42 and keeping the first examples that passed the filters in Table~\ref{tab:data}. Prompt length is measured in Qwen2.5 tokens after the chat template is applied. The same seed controls training-data shuffling, the LoRA train/validation split, the AlpacaEval subset and the A/B order in judging.
 
@@ -49,15 +49,15 @@
 \toprule
 Track & Source (train / val split) & Train / Val & Filters & Kept / scanned \\
 \midrule
-SFT & \nolinkurl{HuggingFaceH4/ultrachat_200k} (train\_sft / test\_sft) & 30,000 / 1,000 & First user--assistant turn; prompt $\le$ 256 tokens & 30,000 / 37,555 \\
-HH-RLHF DPO & \nolinkurl{Anthropic/hh-rlhf} \cite{bai2022}, helpful + harmless subsets (train / test) & 15,000 / 1,000 & Single-turn; same prompt for both responses; chosen $\neq$ rejected; prompt $\le$ 256 tokens & 15,000 / 49,027 \\
-UltraFeedback DPO & \nolinkurl{HuggingFaceH4/ultrafeedback_binarized} \cite{cui2024} (train\_prefs / test\_prefs) & 15,000 / 1,000 & Single-turn; tied scores removed; chosen $\neq$ rejected; prompt $\le$ 256 tokens & 15,000 / 21,354 \\
+SFT & \nolinkurl{HuggingFaceH4/ultrachat_200k}~\cite{ding2023} (train\_sft / test\_sft) & 30,000 / 1,000 & First user--assistant turn; prompt $\le$ 256 tokens & 30,000 / 37,555 \\
+HH-RLHF DPO & \nolinkurl{Anthropic/hh-rlhf}~\cite{bai2022}, helpful + harmless subsets (train / test) & 15,000 / 1,000 & Single-turn; same prompt for both responses; chosen $\neq$ rejected; prompt $\le$ 256 tokens & 15,000 / 49,027 \\
+UltraFeedback DPO & \nolinkurl{HuggingFaceH4/ultrafeedback_binarized}~\cite{cui2024} (train\_prefs / test\_prefs) & 15,000 / 1,000 & Single-turn; tied scores removed; chosen $\neq$ rejected; prompt $\le$ 256 tokens & 15,000 / 21,354 \\
 LoRA persona DPO & Provided persona preference set & 200 / 20 & Random split (seed 42) & -- \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-\para{Evaluation sets:} All models in a comparison answer the same fixed prompts. AlpacaEval \cite{dubois2024} uses 300 instructions sampled from \nolinkurl{tatsu-lab/alpaca_eval} with seed 42 (\nolinkurl{eval_sets/alpaca_eval_300_seed42.json}). The safety set is the 300-prompt synthetic helpful/harmless set provided with the assignment, with 10 categories of 30 prompts (\nolinkurl{eval_sets/hh_rlhf_eval_300_seed42.json}). The persona set has 24 prompts I wrote for this project, 6 each on cooking, coding, general help and safety-sensitive topics (\nolinkurl{eval_sets/persona_style_eval_24.json}).
+\para{Evaluation sets:} All models in a comparison answer the same fixed prompts. AlpacaEval~\cite{dubois2024} uses 300 instructions sampled from \nolinkurl{tatsu-lab/alpaca_eval} with seed 42 (\nolinkurl{eval_sets/alpaca_eval_300_seed42.json}). The safety set is the 300-prompt synthetic helpful/harmless set provided with the assignment, with 10 categories of 30 prompts (\nolinkurl{eval_sets/hh_rlhf_eval_300_seed42.json}). The persona set has 24 prompts I wrote for this project, 6 each on cooking, coding, general help and safety-sensitive topics (\nolinkurl{eval_sets/persona_style_eval_24.json}).
 
 \para{Prompt format:} All Qwen models use the same ChatML template in SFT, DPO and generation, with the system prompt ``You are a helpful assistant.'':
 \begin{center}
@@ -70,7 +70,7 @@ LoRA persona DPO & Provided persona preference set & 200 / 20 & Random split (se
 % =====================================================================
 \section{Experimental Configuration}
 
-Table~\ref{tab:config} lists the settings used for every submitted checkpoint. Each from-scratch DPO \cite{rafailov2023} run starts from the best SFT checkpoint (\nolinkurl{pa2-01-sft/outputs/sft/best}) and uses a frozen copy of the same checkpoint as its reference model.
+Table~\ref{tab:config} lists the settings used for every submitted checkpoint. Each from-scratch DPO run~\cite{rafailov2023} starts from the best SFT checkpoint (\nolinkurl{pa2-01-sft/outputs/sft/best}) and uses a frozen copy of the same checkpoint as its reference model.
 
 \begin{table}[!htb]
 \centering\small
@@ -272,7 +272,7 @@ SFT gave the largest improvement in the project, winning 77.9\% of decisive comp
 
 The results show near parity with SFT on AlpacaEval, even though UltraFeedback reached the strongest validation preference fit (Section~4). UF-DPO answers were 39\% longer than SFT answers (195 vs 140 words) and longer in 82\% of pairs, yet the longer answer won only 47\% of decisive comparisons. Length therefore did not drive the judgments in either direction. The examples show why. Asked for jobs combining remote sensing, machine learning and water resources, UF-DPO tied its project ideas to all three skills, while SFT listed generic job titles. Asked about the meaning of Christmas wreaths, UF-DPO's longer answer invented traditions in Islam, Hinduism and Buddhism. Both models also listed living animals when asked for extinct bear species, which is a knowledge limit of a 0.5B model rather than an effect of DPO.
 
-This suggests that DPO learned the UltraFeedback preference for thorough, structured answers, but at this model size extra detail adds errors about as often as it adds useful content. One possible reason is a mismatch between the training data and the model. UltraFeedback completions were written by models of 7B parameters or more, including GPT-4, and rated by GPT-4 \cite{cui2024}, so the preferred behaviour may exceed what a 0.5B model can imitate accurately. Training for one epoch at a learning rate of $10^{-6}$ also moves the policy only a short distance from SFT.
+This suggests that DPO learned the UltraFeedback preference for thorough, structured answers, but at this model size extra detail adds errors about as often as it adds useful content. One possible reason is a mismatch between the training data and the model. UltraFeedback completions were written by models of 7B parameters or more, including GPT-4, and rated by GPT-4~\cite{cui2024}, so the preferred behaviour may exceed what a 0.5B model can imitate accurately. Training for one epoch at a learning rate of $10^{-6}$ also moves the policy only a short distance from SFT.
 
 \subsection{HH-RLHF DPO}
 
@@ -302,7 +302,7 @@ Self-harm support & 9 / 12 / 9 & 10 / 0 / 20 \\
 
 At $10^{-6}$ the gain is small and spread across categories, and it is largest where SFT complied with hateful, medical or legal requests. At $5\times10^{-6}$ the pattern becomes a clear trade-off. The model wins most comparisons on harmful instructions and privacy, but loses most on benign helpfulness, safe transformation and self-harm support, and it also falls to 42.3\% on AlpacaEval. Its answers became shorter (97 vs 131 words), while keyword refusals rose only from 6.7\% to 10\%. The model therefore became vaguer rather than more willing to refuse. Asked how to sabotage a coworker's car, it still offered ``general guidelines'', only less specific ones. Asked what materials would hurt someone in a fight, SFT listed weapons while DPO listed categories of harm. The judge counted this as a win, but it is not a safe refusal.
 
-Vagueness helps on harmful prompts and hurts wherever the user needs a specific, supportive answer, such as handling a missed deadline or someone in distress. This loss of general helpfulness is the alignment tax, and here it grew with the learning rate. Combined with the flat validation accuracy and the rising validation loss (Section~4), the evidence suggests that the higher learning rate strengthened a general shift towards cautious, less specific answers rather than improving preference discrimination. A plausible contributor is the HH-RLHF data itself \cite{bai2022}, where many chosen responses are ordinary helpful answers that are only slightly better than the rejected ones.
+Vagueness helps on harmful prompts and hurts wherever the user needs a specific, supportive answer, such as handling a missed deadline or someone in distress. This loss of general helpfulness is the alignment tax, and here it grew with the learning rate. Combined with the flat validation accuracy and the rising validation loss (Section~4), the evidence suggests that the higher learning rate strengthened a general shift towards cautious, less specific answers rather than improving preference discrimination. A plausible contributor is the HH-RLHF data itself~\cite{bai2022}, where many chosen responses are ordinary helpful answers that are only slightly better than the rejected ones.
 
 \subsection{Persona LoRA-DPO}
 
@@ -327,30 +327,21 @@ Across the three experiments, stronger preference optimization did not reliably 
   \item \textbf{Failed run.} The first LoRA-DPO run failed because the trainer split the model across both GPUs. I reran it unchanged on a single GPU.
 \end{itemize}
 
-\para{Reproducibility:} The Kaggle notebooks \code{notebooks/00}--\code{05}, \code{02b} and \code{04b/04c} reproduce training and generation on T4$\times$2, and \code{scripts/run\_all\_judging.py} reruns the judging. Model checkpoints are stored in the Kaggle notebook outputs \code{pa2-01-sft}, \code{pa2-02-dpo-hh}, \code{pa2-02b-dpo-hh-lr5e-6}, \code{pa2-03-dpo-uf} and \code{pa2-04/04b/04c}. All other results are in the repository:
+\para{Reproducibility:} The Kaggle notebooks \code{notebooks/00}--\code{05}, \code{02b} and \code{04b/04c} reproduce training and generation on T4$\times$2, and \code{scripts/run\_all\_judging.py} reruns the judging. Model checkpoints are stored in the Kaggle notebook outputs \code{pa2-01-sft}, \code{pa2-02-dpo-hh}, \code{pa2-02b-dpo-hh-lr5e-6}, \code{pa2-03-dpo-uf} and \code{pa2-04/04b/04c}. In the repository, each run's configuration and metrics are in \nolinkurl{results/runs/<run>/} (\code{config.json}, \code{metrics.jsonl}, \code{summary.json}) and the data statistics in \nolinkurl{results/data_stats.json}. Generated responses are in \nolinkurl{results/generations/}, and the blinded pairs, judgments, summaries and failure logs are in \nolinkurl{results/eval/}. \nolinkurl{report/results_table.md} collects every comparison, and \nolinkurl{report/analysis/} holds the per-comparison evidence behind Section~\ref{sec:interp}.
 
-\begin{table}[!htb]
-\centering\footnotesize
-\begin{tabular}{@{}ll@{}}
-\toprule
-What & Repository path \\
-\midrule
-Run configurations and metrics & \code{results/runs/<run>/\{config.json, metrics.jsonl, summary.json\}} \\
-Data statistics & \code{results/data\_stats.json} \\
-Generated responses & \code{results/generations/\{alpaca,hh,persona\}/*.json} \\
-Blinded comparison pairs & \code{results/eval/*\_pairs.jsonl} \\
-Judgments, summaries and failure logs & \code{results/eval/*\_judged.jsonl}, \code{*\_summary.json}, \code{*\_failures.jsonl} \\
-Aggregate results and per-comparison analysis & \code{report/results\_table.md}, \code{report/analysis/*.md} \\
-\bottomrule
-\end{tabular}
-\end{table}
-
+{\small
 \begin{thebibliography}{9}
-\bibitem{rafailov2023} R. Rafailov et al. Direct Preference Optimization: Your Language Model is Secretly a Reward Model. NeurIPS, 2023.
-\bibitem{bai2022} Y. Bai et al. Training a Helpful and Harmless Assistant with Reinforcement Learning from Human Feedback. arXiv:2204.05862, 2022.
-\bibitem{dubois2024} Y. Dubois et al. Length-Controlled AlpacaEval: A Simple Way to Debias Automatic Evaluators. arXiv:2404.04475, 2024.
-\bibitem{cui2024} G. Cui et al. UltraFeedback: Boosting Language Models with Scaled AI Feedback. ICML, 2024.
-\bibitem{hfdocs} Hugging Face. Transformers, TRL (DPOTrainer) and PEFT documentation. \url{https://huggingface.co/docs}.
+\setlength{\itemsep}{1pt}
+\bibitem{qwen2024} Qwen Team. Qwen2.5 Technical Report. arXiv:2412.15115, 2024.
+\bibitem{hu2022} E. J. Hu, Y. Shen, P. Wallis, et al. LoRA: Low-Rank Adaptation of Large Language Models. ICLR, 2022.
+\bibitem{allal2025} L. Ben Allal et al. SmolLM2: When Smol Goes Big -- Data-Centric Training of a Small Language Model. arXiv:2502.02737, 2025.
+\bibitem{hfdocs} Hugging Face. Transformers, TRL and PEFT documentation. \url{https://huggingface.co/docs}.
+\bibitem{ding2023} N. Ding, Y. Chen, B. Xu, et al. Enhancing Chat Language Models by Scaling High-quality Instructional Conversations. EMNLP, 2023.
+\bibitem{bai2022} Y. Bai, A. Jones, K. Ndousse, et al. Training a Helpful and Harmless Assistant with Reinforcement Learning from Human Feedback. arXiv:2204.05862, 2022.
+\bibitem{cui2024} G. Cui, L. Yuan, N. Ding, et al. UltraFeedback: Boosting Language Models with Scaled AI Feedback. ICML, 2024.
+\bibitem{dubois2024} Y. Dubois, B. Galambosi, P. Liang, T. B. Hashimoto. Length-Controlled AlpacaEval: A Simple Way to Debias Automatic Evaluators. arXiv:2404.04475, 2024.
+\bibitem{rafailov2023} R. Rafailov, A. Sharma, E. Mitchell, S. Ermon, C. D. Manning, C. Finn. Direct Preference Optimization: Your Language Model is Secretly a Reward Model. NeurIPS, 2023.
 \end{thebibliography}
+}
 
 \end{document}
