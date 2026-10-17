@@ -1,6 +1,6 @@
 # Analysis: qwen2.5-0.5b-dpo-hh (candidate) vs qwen2.5-0.5b-sft (baseline)
 
-Source: `D:\New folder\uni\Advanced GenAI\PA2\small-model-alignment-starter\results\eval\hh_dpo_vs_sft_judged.jsonl` (300 judged pairs)
+Source: `results/eval/hh_dpo_vs_sft_judged.jsonl` (300 judged pairs)
 
 ## Length and refusals
 

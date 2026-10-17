@@ -92,3 +92,24 @@ outputs/lora_dpo_persona/{config.json, metrics.jsonl, adapter/, split.json}
 outputs/generations/{alpaca,hh,persona}/*.json
 outputs/eval/*_pairs.jsonl, *_judged.jsonl, *_failures.jsonl, *_summary.json
 ```
+
+## Results (submitted runs)
+
+Model checkpoints stay in the Kaggle notebook outputs (`pa2-01-sft`, `pa2-02-dpo-hh`, `pa2-02b-dpo-hh-lr5e-6`,
+`pa2-03-dpo-uf`, `pa2-04-lora`, `pa2-04b-lora-v2`, `pa2-04c-lora-v3`); everything needed to reproduce the
+report's tables and plots is committed here:
+
+```text
+results/data_stats.json              subset sizes and filter statistics (seed 42)
+results/runs/<run>/                  config.json, metrics.jsonl, summary.json for every training run
+results/generations/{alpaca,hh,persona}/*.json   all evaluated model outputs (greedy decoding)
+results/eval/*_pairs.jsonl           blinded A/B pair files (model identity only in "hidden")
+results/eval/*_judged.jsonl          per-pair verdicts and reasons (google/gemini-3.6-flash)
+results/eval/*_summary.json          win/tie/loss/unknown/failure counts per comparison
+results/eval/*_failures.jsonl        logged judge failures before retry
+report/results_table.md              all comparisons in one table
+report/analysis/*.md                 lengths, refusal rates, and win/loss examples per comparison
+report/figures/*.png                 SFT, DPO and LoRA-DPO training curves
+```
+
+Judging was run with `scripts/run_all_judging.py` (Kaggle Model Proxy via `kaggle benchmarks auth`).

@@ -1,5 +1,5 @@
 {
-  "pairs_path": "D:\\New folder\\uni\\Advanced GenAI\\PA2\\small-model-alignment-starter\\results\\eval\\persona_lora_v2_vs_instruct_pairs.jsonl",
+  "pairs_path": "results\\eval\\persona_lora_v2_vs_instruct_pairs.jsonl",
   "judge_model": "google/gemini-3.6-flash",
   "candidate": "smollm2-360m-lora-dpo-persona-v2",
   "baseline": "smollm2-360m-instruct",

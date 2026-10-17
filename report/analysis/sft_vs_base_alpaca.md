@@ -1,6 +1,6 @@
 # Analysis: qwen2.5-0.5b-sft (candidate) vs qwen2.5-0.5b-base (baseline)
 
-Source: `D:\New folder\uni\Advanced GenAI\PA2\small-model-alignment-starter\results\eval\sft_vs_base_alpaca_judged.jsonl` (300 judged pairs)
+Source: `results/eval/sft_vs_base_alpaca_judged.jsonl` (300 judged pairs)
 
 ## Length and refusals
 

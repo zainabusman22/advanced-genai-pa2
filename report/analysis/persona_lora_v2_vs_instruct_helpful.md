@@ -1,6 +1,6 @@
 # Analysis: smollm2-360m-lora-dpo-persona-v2 (candidate) vs smollm2-360m-instruct (baseline)
 
-Source: `D:\New folder\uni\Advanced GenAI\PA2\small-model-alignment-starter\results\eval\persona_lora_v2_vs_instruct_helpful_judged.jsonl` (24 judged pairs)
+Source: `results/eval/persona_lora_v2_vs_instruct_helpful_judged.jsonl` (24 judged pairs)
 
 ## Length and refusals
 

@@ -1,5 +1,5 @@
 {
-  "pairs_path": "D:\\New folder\\uni\\Advanced GenAI\\PA2\\small-model-alignment-starter\\results\\eval\\xhh_dpo_vs_sft_alpaca_pairs.jsonl",
+  "pairs_path": "results\\eval\\xhh_dpo_vs_sft_alpaca_pairs.jsonl",
   "judge_model": "google/gemini-3.6-flash",
   "candidate": "qwen2.5-0.5b-dpo-hh",
   "baseline": "qwen2.5-0.5b-sft",
