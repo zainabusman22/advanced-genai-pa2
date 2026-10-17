@@ -7,6 +7,8 @@ Post-training pipeline for the Advanced GenAI PA2 assignment (see `docs/assignme
 3. **TRL `DPOTrainer` + LoRA** persona tuning of `HuggingFaceTB/SmolLM2-360M-Instruct` ("Idiot Sandwich").
 4. Fixed-prompt generation, blinded pairwise files, and resumable LLM-as-judge evaluation via `kaggle_benchmarks`.
 
+**Final report:** [`report/report 27100409.pdf`](report/report%2027100409.pdf) (LaTeX source: `report/latex/report.tex`).
+
 ## Layout
 
 ```text
@@ -27,11 +29,13 @@ scripts/
   summarize_results.py   judge summaries -> Markdown table
   analyze_results.py     lengths, refusal rates, win/loss examples for error analysis
   plot_metrics.py        training curves for the report
-notebooks/             Kaggle driver notebooks 01-06 (regenerate with make_notebooks.py)
+  run_all_judging.py     runs every judging job through the Kaggle Model Proxy
+notebooks/             Kaggle driver notebooks 00-06, 02b, 04b, 04c (regenerate with make_notebooks.py)
 eval_sets/             hh_rlhf_eval_300_seed42.json (provided), alpaca_eval_300_seed42.json,
                        persona_style_eval_24.json
 tests/                 public smoke tests + own edge-case tests
-report/                report source and figures
+results/               run records, generations, blinded pairs and judgments (see below)
+report/                final report PDF, LaTeX source, figures and per-comparison analyses
 ```
 
 ## Design choices that matter for grading
