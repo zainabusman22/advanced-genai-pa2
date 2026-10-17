@@ -69,31 +69,48 @@ def plot_sft(path, out_dir, smooth):
     plt.close(fig)
 
 
+def style_handles(train_label, val_label, ckpt_label, show_log2=True, log2_label="log 2 (step-0 loss)"):
+    """Gray proxy handles explaining line styles, shared by all runs in a figure legend."""
+
+    from matplotlib.lines import Line2D
+
+    handles = [Line2D([], [], color="gray", lw=1, alpha=0.7, label=train_label),
+               Line2D([], [], color="gray", marker="o", label=val_label),
+               Line2D([], [], color="gray", marker="*", ls="none", markersize=13, label=ckpt_label)]
+    if show_log2:
+        handles.append(Line2D([], [], color="gray", ls="--", lw=1, label=log2_label))
+    return handles
+
+
 def plot_dpo(named_paths, out_dir, smooth):
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+    from matplotlib.lines import Line2D
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4.3))
+    run_handles = []
     for i, (name, path) in enumerate(named_paths):
         rows = read_jsonl(path)
         c = COLORS[i % len(COLORS)]
-        for ax, tkey, vkey, label in (
-            (axes[0], "train_loss", "val_loss", "DPO loss"),
-            (axes[1], "train_acc", "val_acc", "reward accuracy"),
-            (axes[2], "train_margin", "val_margin", "reward margin"),
-        ):
+        run_handles.append(Line2D([], [], color=c, lw=3, label=name))
+        best = [r for r in rows if r.get("saved_best")]
+        for ax, tkey, vkey in ((axes[0], "train_loss", "val_loss"), (axes[1], "train_acc", "val_acc"),
+                               (axes[2], "train_margin", "val_margin")):
             x, y = series(rows, "train", tkey)
             if y:
-                ax.plot(x, ema(y, smooth), color=c, alpha=0.5, lw=1, label=f"{name} train (EMA {smooth})")
+                ax.plot(x, ema(y, smooth), color=c, alpha=0.45, lw=1)
             x, y = series(rows, "val", vkey)
-            ax.plot(x, y, "o-", color=c, label=f"{name} val")
-            if vkey == "val_acc":
-                mark_best(ax, rows, vkey, c)
-            ax.set_title(label)
-            ax.set_xlabel("optimizer step (effective batch 32)")
-            ax.grid(alpha=0.3)
-    axes[0].axhline(np.log(2), color="gray", ls="--", lw=1, label="log 2")
-    for ax in axes:
-        ax.legend(fontsize=8.5)
-    fig.suptitle("From-scratch DPO from the SFT best checkpoint (beta = 0.1)")
-    fig.tight_layout()
+            ax.plot(x, y, "o-", color=c, ms=4)
+            if best:
+                ax.scatter([best[-1]["step"]], [best[-1][vkey]], color=c, marker="*", s=170, zorder=5,
+                           edgecolors="black", linewidths=0.6)
+    axes[0].axhline(np.log(2), color="gray", ls="--", lw=1)
+    for ax, ylabel in zip(axes, ("DPO loss", "reward accuracy", "reward margin ($r_w - r_l$)")):
+        ax.set_ylabel(ylabel)
+        ax.set_xlabel("optimizer step (effective batch 32)")
+        ax.grid(alpha=0.3)
+    fig.legend(handles=run_handles + style_handles(f"training (EMA {smooth})", "validation (1,000 pairs)",
+                                                   "selected checkpoint"),
+               loc="lower center", ncol=7, fontsize=10.5, frameon=False, bbox_to_anchor=(0.5, -0.01))
+    fig.tight_layout(rect=(0, 0.08, 1, 1))
     fig.savefig(out_dir / "dpo_curves.png", dpi=160)
     plt.close(fig)
 
@@ -101,29 +118,37 @@ def plot_dpo(named_paths, out_dir, smooth):
 def plot_lora(named_paths, out_dir):
     """Overlay one or more TRL LoRA-DPO runs: train loss, val loss (log scale), val reward margin."""
 
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4))
+    from matplotlib.lines import Line2D
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4.3))
+    run_handles = []
     for i, (name, path) in enumerate(named_paths):
         rows = read_jsonl(path)
         c = COLORS[i % len(COLORS)]
+        run_handles.append(Line2D([], [], color=c, lw=3, label=name))
         tr = [r for r in rows if "loss" in r and "eval_loss" not in r and "step" in r]
         ev = [r for r in rows if "eval_loss" in r]
-        axes[0].plot([r["step"] for r in tr], [r["loss"] for r in tr], color=c, label=name)
-        axes[1].plot([r["step"] for r in ev], [r["eval_loss"] for r in ev], "o-", color=c, label=name)
+        axes[0].plot([r["step"] for r in tr], [r["loss"] for r in tr], color=c, lw=1.3)
+        axes[1].plot([r["step"] for r in ev], [r["eval_loss"] for r in ev], "o-", color=c, ms=4)
         if ev and "eval_rewards/margins" in ev[0]:
-            acc = ev[-1].get("eval_rewards/accuracies")
-            axes[2].plot([r["step"] for r in ev], [r["eval_rewards/margins"] for r in ev], "o-", color=c,
-                         label=f"{name} (final val acc {acc:.2f})" if acc is not None else name)
-    axes[0].set_title("LoRA-DPO train loss")
-    axes[1].set_title("LoRA-DPO validation loss (log scale)")
+            axes[2].plot([r["step"] for r in ev], [r["eval_rewards/margins"] for r in ev], "o-", color=c, ms=4)
+        if "v3" in name and ev:  # the submitted LoRA checkpoint is v3's final step
+            axes[1].scatter([ev[-1]["step"]], [ev[-1]["eval_loss"]], color=c, marker="*", s=170, zorder=5,
+                            edgecolors="black", linewidths=0.6)
+            axes[2].scatter([ev[-1]["step"]], [ev[-1]["eval_rewards/margins"]], color=c, marker="*", s=170,
+                            zorder=5, edgecolors="black", linewidths=0.6)
+    axes[0].axhline(np.log(2), color="gray", ls="--", lw=1)
+    axes[1].axhline(np.log(2), color="gray", ls="--", lw=1)
     axes[1].set_yscale("log")
-    axes[2].set_title("LoRA-DPO validation reward margin")
-    for ax in axes:
-        ax.axhline(np.log(2), color="gray", ls="--", lw=1) if ax is not axes[2] else None
+    for ax, ylabel in zip(axes, ("training DPO loss", "validation DPO loss (log scale)",
+                                 "validation reward margin ($r_w - r_l$)")):
+        ax.set_ylabel(ylabel)
         ax.set_xlabel("optimizer step (effective batch 16)")
         ax.grid(alpha=0.3)
-        ax.legend(fontsize=9.5)
-    fig.suptitle("TRL DPOTrainer + LoRA persona tuning (SmolLM2-360M-Instruct, 200 train / 20 val pairs, beta = 0.1)")
-    fig.tight_layout()
+    fig.legend(handles=run_handles + style_handles("training (raw)", "validation (20 pairs)",
+                                                   "selected (v3, final)", log2_label="log 2"),
+               loc="lower center", ncol=7, fontsize=10.5, frameon=False, bbox_to_anchor=(0.5, -0.01))
+    fig.tight_layout(rect=(0, 0.08, 1, 1))
     fig.savefig(out_dir / "lora_dpo_curves.png", dpi=160)
     plt.close(fig)
 
