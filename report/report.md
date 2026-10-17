@@ -4,7 +4,7 @@
 
 ## 1. Repository, Models, and Data
 
-**Repository:** <https://github.com/zainabusman22/advanced-genai-pa2>. It is private, and course staff are added as collaborators. The core math (batching, response masking, log-probs, SFT and DPO losses) is in `alignment/core.py` and is exposed through `submission_adapter.py`. The public smoke tests pass, as do 28 additional tests (edge cases and cross-checks against Hugging Face's built-in causal-LM loss).
+**Repository:** <https://github.com/zainabusman22/advanced-genai-pa2> (public). The core math (batching, response masking, log-probs, SFT and DPO losses) is in `alignment/core.py` and is exposed through `submission_adapter.py`. The public smoke tests pass, as do 28 additional tests (edge cases and cross-checks against Hugging Face's built-in causal-LM loss).
 
 **Models.** SFT and both from-scratch DPO runs use `Qwen/Qwen2.5-0.5B` (494M parameters). The LoRA persona task uses `HuggingFaceTB/SmolLM2-360M-Instruct`.
 
